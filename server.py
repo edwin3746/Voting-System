@@ -45,8 +45,10 @@ def authenticatorPartialPrivateKey(g, p):
                         commitment1Value = commitmentInfo1.split("||")[0]
                         commitment1PartialKey = commitmentInfo1.split("||")[1]
                         commitment1R = commitmentInfo1.split("||")[2]
-                        if (pow(g,commitment1PartialKey,p) * pow(commitment1PartialKey, commitment1R, p)) % p == commitment1Value:
+                        value = (pow(g,commitment1PartialKey,p) * pow(commitment1PartialKey, commitment1R, p)) % p
+                        if value == commitment1Value:
                             commitment1valid = True
+                            print(value)
                             connection.sendall(b"Valid")
                             break
                         else:
@@ -59,8 +61,10 @@ def authenticatorPartialPrivateKey(g, p):
                         commitment2Value = commitmentInfo2.split("||")[0]
                         commitment2PartialKey = commitmentInfo2.split("||")[1]
                         commitment2R = commitmentInfo2.split("||")[2]
-                        if (pow(g,commitment2PartialKey,p) * pow(commitment2PartialKey, commitment2R, p)) % p == commitment2Value:
+                        value = (pow(g,commitment2PartialKey,p) * pow(commitment2PartialKey, commitment2R, p)) % p
+                        if value == commitment2Value:
                             commitment2valid = True
+                            print(value)
                             connection.sendall(b"Valid")
                             break
                         else:
