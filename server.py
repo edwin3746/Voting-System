@@ -14,7 +14,7 @@ server_address = ('127.0.0.1', 7777)
 def error():
     print("Oops! Something gone wrong!")
 
-def parseParamsToAuthenticator(q):
+def parseParamsToAuthenticator(publicKeyParamBytes):
     ## Create socket object and send public param q over
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(server_address)
@@ -22,21 +22,26 @@ def parseParamsToAuthenticator(q):
     auth1Count = 0
     auth2Count = 0
     while True:
+        print (auth1Count)
+        print (auth2Count)
         try:
-            print(f"Waiting for Authenticator to retrieve Public Q")
+            print("Waiting for Authenticator to retrieve Public Q")
             connection, client_address = server.accept()
             print("Connection From : ", client_address)
-            ## Ensure that the connection to retrieve q is only this 2 IP address
-            if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
-                msgCode = connection.recv(1024).decode("utf-8")
-                ## If the IP address received q
-                if msgCode == "Received q" and client_address[0] == "127.0.0.2":
-                    auth1Count += 1
-                elif msgCode == "Received q" and client_address[0] == "127.0.0.3":
-                    auth2Count += 1
-                elif client_address[0] == "127.0.0.2" and auth1Count == 0 or client_address[0] == "127.0.0.3" and auth2Count == 0:
-                    print (q)
-                    connection.sendall(q)
+            while True:
+                ## Ensure that the connection to retrieve q is only this 2 IP address
+                if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
+                    msgCode = connection.recv(1024).decode("utf-8")
+                    print(msgCode)
+                    ## If the IP address received q
+                    if msgCode == "Received q" and client_address[0] == "127.0.0.2":
+                        auth1Count += 1
+                        break
+                    elif msgCode == "Received q" and client_address[0] == "127.0.0.3":
+                        auth2Count += 1
+                        break
+                    elif client_address[0] == "127.0.0.2" and auth1Count == 0 or client_address[0] == "127.0.0.3" and auth2Count == 0:
+                        connection.sendall(publicKeyParamBytes)
         except Exception as e:
             print("An error has occured: ", e)
         ## If both Authenticator received q then close connection
@@ -51,7 +56,7 @@ def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd):
     server.listen(1)
     while True:
         try:
-            print(f"Waiting for client to retrieve Public Information")
+            print("Waiting for client to retrieve Public Information")
             connection, client_address = server.accept()
             print("Connection From : ", client_address)
             while True:
@@ -115,8 +120,9 @@ def main():
     g = generate_g(p, q)
 
     ## Convert q to bytes to be send over to Authenticator using Socket
-    publicKeyParam = str.encode(str(q))
-    parseParamsToAuthenticator(publicKeyParam)
+    publicKeyParam = str(p) + "||" + str(q) + "||" + str(g) + "||"
+    publicKeyParamBytes = str.encode(publicKeyParam)
+    parseParamsToAuthenticator(publicKeyParamBytes)
 
 
     ## Generate the partial private key
