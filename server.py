@@ -1,12 +1,12 @@
-from tinyec import registry
 from threading import Thread
-#from Crypto.Cipher import AES
+from Cryptodome.Util import number
+from Cryptodome.Random import get_random_bytes
 import datetime
-import secrets
 import socket
 import time
 
 ## Pip install tinyec
+## Pip install pycryptodomex
 
 server_address = ('127.0.0.1', 7777)
 
@@ -14,7 +14,7 @@ server_address = ('127.0.0.1', 7777)
 def error():
     print("Oops! Something gone wrong!")
 
-def socketSetup(publicKeyinBytes,candidateNames,votingEnd):
+def socketSetup(publicKeyParams,publicKeyBytes,candidateNames,votingEnd):
     ## Create socket object and send public key over
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(server_address)
@@ -24,16 +24,23 @@ def socketSetup(publicKeyinBytes,candidateNames,votingEnd):
             print(f"Waiting for client to retrieve Public Information")
             connection, client_address = server.accept()
             print("Connection From : ", client_address)
-            while True:
+            if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
+                print("Yes")
                 msgCode = connection.recv(1024).decode("utf-8")
-                if msgCode == "Requesting Voting Deadline":
-                    connection.send(votingEnd)
-                elif msgCode == "Requesting Public Key":
-                    connection.send(publicKeyinBytes)
-                elif msgCode == "Requesting Candidate Names":
-                    connection.send(candidateNames)
-                else:
-                    connection.send(b"An error has occured!")
+                if msgCode == "Retrieve public key parameters":
+                    print(publicKeyParams)
+                    connection.sendall(publicKeyParams)
+            else:
+                while True:
+                    msgCode = connection.recv(1024).decode("utf-8")
+                    if msgCode == "Requesting Voting Deadline":
+                        connection.sendall(votingEnd)
+                    elif msgCode == "Requesting Public Key":
+                        connection.sendall(publicKeyBytes)
+                    elif msgCode == "Requesting Candidate Names":
+                        connection.sendall(candidateNames)
+                    else:
+                        connection.sendall(b"An error has occured!")
         except Exception as e:
             print("An error has occured: ", e)
 
@@ -41,16 +48,15 @@ def collateVotes():
     ## Decrypting and count all the votes
     printf("Decrypt!")
 
-def generateKeys():
-    ## Curve with 192-bit security
-    ecc_curve = registry.get_curve('secp384r1')
-    private_key = secrets.randbelow(ecc_curve.field.n)
-    public_key = private_key * ecc_curve.g
+def generate_primes():
+    p = number.getPrime(2048)
+    q = number.getPrime(256)
+    return p, q
 
-    if not private_key or not public_key:
-        error()
-
-    return public_key, private_key
+def generate_g(p, q):
+    h = number.getRandomRange(2, p-2)
+    g = pow(h, (p-1)//q, p)
+    return g
 
 def main():
     ## Retrieve the number of candidates and their names respectively
@@ -81,14 +87,21 @@ def main():
     votingEndDate = datetime.datetime.now() + datetime.timedelta(hours = int(votingHours))
     votingEnd = str.encode(votingEndDate.strftime("%Y-%m-%d %H:%M:%S"))
 
-    ## Generate keys using ElGamal
-    public_key, private_key = generateKeys()
+    ## Generate the parameters using ElGamal
+    p, q = generate_primes()
+    g = generate_g(p, q)
 
-    ## Convert public key string to bytes to be send over using Socket
-    public_key_bytes = str.encode(str(public_key.x) + "||" + str(public_key.y))
+    ## Generate the keys required for ElGamal
+    partialPrivateKey = number.getRandomRange(2, q-2)
+    publicKey = pow(g, partialPrivateKey, p)
 
+    ## Convert public key string and params to bytes to be send over using Socket
+    publicKeyBytes = str.encode(str(publicKey))
+    publicKeyParam = str.encode(str(q))
+
+    sever = Thread(target=startServer)
     ## Server running in the background
-    server = Thread(target = socketSetup, args=(public_key_bytes,candidateNames,votingEnd))
+    server = Thread(target = socketSetup, args=(publicKeyParam,publicKeyBytes,candidateNames,votingEnd))
     server.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
