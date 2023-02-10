@@ -1,4 +1,4 @@
-from threading import Thread
+import threading
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes
 import datetime
@@ -9,16 +9,22 @@ import time
 ## Pip install pycryptodomex
 
 server_address = ('127.0.0.1', 7777)
+stopSync = False
+threads = []
 
 ## This function is for countdown to indicate when to decrypt and tabulate the data
 def error():
     print("Oops! Something gone wrong!")
 
-def authenticatorPartialPrivateKey(g, p):
-    ## Create socket object and wait to receive Partial Private key from Authenticators
+def setupServer():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(server_address)
-    server.listen(1)
+    server.listen(2)
+    return server
+
+def authenticatorPartialPrivateKey(g, p):
+    ## Create socket object and wait to receive Partial Private key from Authenticators
+    server = setupServer()
     commitment1valid = False
     commitment2valid = False
     commitmentInfo1 = ""
@@ -76,46 +82,51 @@ def authenticatorPartialPrivateKey(g, p):
         if commitment1valid and commitment2valid:
             return commitment1PartialKey, commitment2PartialKey
 
-def parseParamsToAuthenticator(publicKeyParamBytes):
+def sendParamsToAuthenticator(publicKeyParamBytes, connection, client_address):
+    global stopSync
+    while not stopSync:
+        msgCode = connection.recv(1024).decode("utf-8")
+        if msgCode == "Received Q!" and client_address[0] == "127.0.0.2":
+            print("Authenticator 1 received Q!")
+        elif msgCode == "Received Q!" and client_address[0] == "127.0.0.3":
+            print("Authenticator 2 received Q!")
+        else:
+            connection.sendall(publicKeyParamBytes)
+
+    connection.sendall(b"Partial Private Key Generated Complete!")
+
+
+def syncConnectionToAuthenticator(publicKeyParamBytes):
+    global stopSync
     ## Create socket object and send public param q over
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(server_address)
-    server.listen(1)
+    server = setupServer()
     auth1Count = 0
     auth2Count = 0
     while True:
-        try:
-            print("Waiting for Authenticator to retrieve Public Q")
-            connection, client_address = server.accept()
-            print("Connection From : ", client_address)
-            while True:
-                ## Ensure that the connection to retrieve q is only this 2 IP address
-                if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
-                    msgCode = connection.recv(1024).decode("utf-8")
-                    ## If the IP address received q
-                    if msgCode == "Received q" and client_address[0] == "127.0.0.2":
-                        auth1Count += 1
-                        print("Authenticator 1 received Q!")
-                        break
-                    elif msgCode == "Received q" and client_address[0] == "127.0.0.3":
-                        print("Authenticator 2 received Q!")
-                        auth2Count += 1
-                        break
-                    elif client_address[0] == "127.0.0.2" and auth1Count == 0 or client_address[0] == "127.0.0.3" and auth2Count == 0:
-                        connection.sendall(publicKeyParamBytes)
-        except Exception as e:
-            print("An error has occured: ", e)
-        ## If both Authenticator received q then close connection
-        if auth1Count == 1 and auth2Count == 1:
-            connection.sendall(b"Partial Private Key Generated Complete!")
-            break
+        print("Waiting for Authenticator to retrieve Public Q")
+        connection, client_address = server.accept()
+        ## Ensure that the connection to retrieve q is only this 2 IP address
+        if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
+            t = threading.Thread(target = sendParamsToAuthenticator, args=(publicKeyParamBytes, connection, client_address))
+            threads.append(t)
+            t.start()
+            if client_address[0] == "127.0.0.2":
+                auth1Count = 1
+            elif client_address[0] == "127.0.0.3":
+                auth2Count = 1
+            if auth1Count == 1 and auth2Count == 1:
+                stopSync = True
+                time.sleep(2)
+                break
+        else:
+            print("Invalid Connections!")
+    for t in threads:
+        t.join()
     server.close()
 
 def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd):
     ## Create socket object and send public key over
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(server_address)
-    server.listen(1)
+    server = setupServer()
     while True:
         try:
             print("Waiting for client to retrieve Public Information")
@@ -177,14 +188,16 @@ def main():
     votingEndDate = datetime.datetime.now() + datetime.timedelta(hours = int(votingHours))
     votingEnd = str.encode(votingEndDate.strftime("%Y-%m-%d %H:%M:%S"))
 
+    print("Initializing....Generating parameters")
     ## Generate the parameters using ElGamal
     p, q = generate_primes()
     g = generate_g(p, q)
 
+    print("Parameters generated!")
     ## Convert q to bytes to be send over to Authenticator using Socket
     publicKeyParam = str(p) + "||" + str(q) + "||" + str(g) + "||"
     publicKeyParamBytes = str.encode(publicKeyParam)
-    parseParamsToAuthenticator(publicKeyParamBytes)
+    syncConnectionToAuthenticator(publicKeyParamBytes)
 
     ## Retrieve all the partial private keys from authenticators with commitment verified
     partialPrivateKey1, partialPrivateKey2 = authenticatorPartialPrivateKey(g, p)
@@ -197,7 +210,7 @@ def main():
     publicKeyBytes = str.encode(str(publicKey))
 
     ## Server running in the background
-    server = Thread(target = socketSetupForPublic, args=(publicKeyBytes,candidateNames,votingEnd))
+    server = threading.Thread(target = socketSetupForPublic, args=(publicKeyBytes,candidateNames,votingEnd))
     server.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
