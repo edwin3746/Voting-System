@@ -14,7 +14,37 @@ server_address = ('127.0.0.1', 7777)
 def error():
     print("Oops! Something gone wrong!")
 
-def socketSetup(publicKeyParams,publicKeyBytes,candidateNames,votingEnd):
+def parseParamsToAuthenticator(q):
+    ## Create socket object and send public param q over
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(server_address)
+    server.listen(1)
+    auth1Count = 0
+    auth2Count = 0
+    while True:
+        try:
+            print(f"Waiting for Authenticator to retrieve Public Q")
+            connection, client_address = server.accept()
+            print("Connection From : ", client_address)
+            ## Ensure that the connection to retrieve q is only this 2 IP address
+            if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
+                msgCode = connection.recv(1024).decode("utf-8")
+                ## If the IP address received q
+                if msgCode == "Received q" and client_address[0] == "127.0.0.2":
+                    auth1Count += 1
+                elif msgCode == "Received q" and client_address[0] == "127.0.0.3":
+                    auth2Count += 1
+                elif client_address[0] == "127.0.0.2" and auth1Count == 0 or client_address[0] == "127.0.0.3" and auth2Count == 0:
+                    print (q)
+                    connection.sendall(q)
+        except Exception as e:
+            print("An error has occured: ", e)
+        ## If both Authenticator received q then close connection
+        if auth1Count == 1 and auth2Count == 1:
+            break
+    server.close()
+
+def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd):
     ## Create socket object and send public key over
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(server_address)
@@ -24,23 +54,16 @@ def socketSetup(publicKeyParams,publicKeyBytes,candidateNames,votingEnd):
             print(f"Waiting for client to retrieve Public Information")
             connection, client_address = server.accept()
             print("Connection From : ", client_address)
-            if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
-                print("Yes")
+            while True:
                 msgCode = connection.recv(1024).decode("utf-8")
-                if msgCode == "Retrieve public key parameters":
-                    print(publicKeyParams)
-                    connection.sendall(publicKeyParams)
-            else:
-                while True:
-                    msgCode = connection.recv(1024).decode("utf-8")
-                    if msgCode == "Requesting Voting Deadline":
-                        connection.sendall(votingEnd)
-                    elif msgCode == "Requesting Public Key":
-                        connection.sendall(publicKeyBytes)
-                    elif msgCode == "Requesting Candidate Names":
-                        connection.sendall(candidateNames)
-                    else:
-                        connection.sendall(b"An error has occured!")
+                if msgCode == "Requesting Voting Deadline":
+                    connection.sendall(votingEnd)
+                elif msgCode == "Requesting Public Key":
+                    connection.sendall(publicKeyBytes)
+                elif msgCode == "Requesting Candidate Names":
+                    connection.sendall(candidateNames)
+                else:
+                    connection.sendall(b"An error has occured!")
         except Exception as e:
             print("An error has occured: ", e)
 
@@ -91,17 +114,20 @@ def main():
     p, q = generate_primes()
     g = generate_g(p, q)
 
-    ## Generate the keys required for ElGamal
+    ## Convert q to bytes to be send over to Authenticator using Socket
+    publicKeyParam = str.encode(str(q))
+    parseParamsToAuthenticator(publicKeyParam)
+
+
+    ## Generate the partial private key
     partialPrivateKey = number.getRandomRange(2, q-2)
     publicKey = pow(g, partialPrivateKey, p)
 
     ## Convert public key string and params to bytes to be send over using Socket
     publicKeyBytes = str.encode(str(publicKey))
-    publicKeyParam = str.encode(str(q))
 
-    sever = Thread(target=startServer)
     ## Server running in the background
-    server = Thread(target = socketSetup, args=(publicKeyParam,publicKeyBytes,candidateNames,votingEnd))
+    server = Thread(target = socketSetup, args=(publicKeyBytes,candidateNames,votingEnd))
     server.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
