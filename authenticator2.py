@@ -26,19 +26,22 @@ def retrievePublicKeys(receivePubKeyInfo):
     p = ""
     q = ""
     g = ""
+    wait = "."
 
     while not pubKeyInfo or not p or not q or not g:
         receivePubKeyInfo.sendall(b'Retrieve public key parameters')
         pubKeyInfo = receivePubKeyInfo.recv(8192*10).decode("utf-8")
-        p = pubKeyInfo.split("||")[0]
-        q = pubKeyInfo.split("||")[1]
-        g = pubKeyInfo.split("||")[2]
+        p = int(pubKeyInfo.split("||")[0])
+        q = int(pubKeyInfo.split("||")[1])
+        g = int(pubKeyInfo.split("||")[2])
         count += 1
         if count == 10:
             raise Exception()
     if p and q and g:
         receivePubKeyInfo.sendall(b"Received q")
-
+    while receivePubKeyInfo.recv(1024).decode("utf-8") != "Partial Private Key Generated Complete!":
+        print(wait)
+        wait += "."
     receivePubKeyInfo.close()
 
     ## Generate part of private key here (g^x mod p)
@@ -48,14 +51,17 @@ def retrievePublicKeys(receivePubKeyInfo):
     ## Commitment
     r = generate_r(q)
     secret = (pow(g,partialPrivateKey,p) * pow(partialPrivateKey, r, p)) % p
-
+    return secret,partialPrivateKey,r
 
 def main():
     auth2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     auth2.bind(auth2_address)
+    secret = ""
+    partialPrivateKey = ""
+    r = ""
 
     try:
-        secret,partialPrivateKey,r = retrievePublicKeys(auth2)
+        secret,partialPrivateKey,r = retrievePublicKeys(auth1)
     except:
         print("Server is not up!")
 
