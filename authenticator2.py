@@ -9,6 +9,7 @@ port = number.getRandomRange(1, 65536)
 auth2_address = ('127.0.0.3',port)
 
 def retrievePublicKeys(receivePubKeyInfo):
+    count = 0
     receivePubKeyInfo.connect(server_address)
     pubKeyInfo = ""
     p = ""
@@ -21,6 +22,9 @@ def retrievePublicKeys(receivePubKeyInfo):
         p = pubKeyInfo.split("||")[0]
         q = pubKeyInfo.split("||")[1]
         g = pubKeyInfo.split("||")[2]
+        count += 1
+        if count == 10:
+            break
     if p and q and g:
         receivePubKeyInfo.sendall(b"Received q")
 
@@ -41,4 +45,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
