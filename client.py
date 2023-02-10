@@ -1,6 +1,5 @@
 from flask import Flask, redirect, url_for, render_template, request, jsonify, flash
 import hashlib
-import secrets
 import socket
 import time
 
@@ -14,16 +13,13 @@ votingEnd = ""
 def retrieveServerInformation():
     receiveInfo = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     receiveInfo.connect(server_address)
-    publicKey_x = ""
-    publicKey_y = ""
+    publicKey = ""
     global votingEnd
     candidateNames = ""
 
-    while not publicKey_x and not publicKey_y:
+    while not publicKey:
         receiveInfo.send(b'Requesting Public Key')
-        publicKey = receiveInfo.recv(8192).decode("utf-8")
-        publicKey_x = publicKey.split("||")[0]
-        publicKey_y = publicKey.split("||")[1]
+        publicKey = receiveInfo.recv(1024).decode("utf-8")
 
     while not votingEnd:
         receiveInfo.send(b'Requesting Voting Deadline')
@@ -37,8 +33,7 @@ def retrieveServerInformation():
     candidates.extend(candidateNames.split("||"))
     candidates[:] = [x for x in candidates if x != ""]
 
-    print(publicKey_x)
-    print(publicKey_y)
+    print(publicKey)
     print(candidates)
     print(votingEnd)
     receiveInfo.close()
