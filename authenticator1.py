@@ -26,19 +26,22 @@ def retrievePublicKeys(receivePubKeyInfo):
     p = ""
     q = ""
     g = ""
+    wait = "."
 
     while not pubKeyInfo or not p or not q or not g:
         receivePubKeyInfo.send(b'Retrieve public key parameters')
         pubKeyInfo = receivePubKeyInfo.recv(8192*10).decode("utf-8")
-        p = pubKeyInfo.split("||")[0]
-        q = pubKeyInfo.split("||")[1]
-        g = pubKeyInfo.split("||")[2]
+        p = int(pubKeyInfo.split("||")[0])
+        q = int(pubKeyInfo.split("||")[1])
+        g = int(pubKeyInfo.split("||")[2])
         count += 1
         if count == 10:
             raise Exception()
     if p and q and g:
         receivePubKeyInfo.send(b"Received q")
-
+    while receivePubKeyInfo.recv(1024).decode("utf-8") != "Partial Private Key Generated Complete!":
+        print(wait)
+        wait += "."
     receivePubKeyInfo.close()
 
     ## Generate part of private key here (g^x mod p)
@@ -53,14 +56,17 @@ def retrievePublicKeys(receivePubKeyInfo):
 def main():
     auth1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     auth1.bind(auth1_address)
+    secret = ""
+    partialPrivateKey = ""
+    r = ""
 
     try:
         secret,partialPrivateKey,r = retrievePublicKeys(auth1)
     except:
         print("Server is not up!")
 
-    commitmentInfo = str(secret) + "||" + str(partialPrivateKey) + "||" + str(r)
     print(secret)
+    commitmentInfo = str(secret) + "||" + str(partialPrivateKey) + "||" + str(r)
     ## Convert the commitmentInfo into bytes and send to server
     commitmentInfo = str.encode(str(commitmentInfo))
     sendCommitment(commitmentInfo,auth1)
@@ -69,6 +75,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
