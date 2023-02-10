@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Voting Page</title>
+    <script>
+      function allowOnlyOne(id) {
+        var radios = document.getElementsByClassName("voteOption");
+        for (var i = 0; i < radios.length; i++) {
+          if (radios[i].id != id) {
+            radios[i].checked = false;
+          }
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <h2>Vote for your favorite candidate</h2>
+    <form action="/vote" method="post">
+      {% for candidate in candidates %}
+      <div>
+        <label for="{{ candidate }}">{{ candidate }}</label>
+        <input type="radio" id="{{ candidate }}" class="voteOption" name="vote" value="1" onclick="allowOnlyOne(this.id)">
+      </div>
+      {% endfor %}
+      <input type="submit" value="Submit Vote">
+      <h4>Voting ends on: {{ votingEnd }}</h4>
+    </form>
+  </body>
+</html>
