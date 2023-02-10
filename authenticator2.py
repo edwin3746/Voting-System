@@ -1,4 +1,5 @@
 import socket
+import time
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes
 
@@ -38,10 +39,13 @@ def retrievePublicKeys(receivePubKeyInfo):
         if count == 10:
             raise Exception()
     if p and q and g:
-        receivePubKeyInfo.sendall(b"Received q")
-    while receivePubKeyInfo.recv(1024).decode("utf-8") != "Partial Private Key Generated Complete!":
+        receivePubKeyInfo.sendall(b"Received Q!")
+
+    msgCode = receivePubKeyInfo.recv(1024).decode("utf-8")
+    while msgCode != "Partial Private Key Generated Complete!":
         print(wait)
         wait += "."
+    print("Done")
     receivePubKeyInfo.close()
 
     ## Generate part of private key here (g^x mod p)
@@ -60,21 +64,20 @@ def main():
     partialPrivateKey = ""
     r = ""
 
-    try:
-        secret,partialPrivateKey,r = retrievePublicKeys(auth1)
-    except:
-        print("Server is not up!")
+    secret,partialPrivateKey,r = retrievePublicKeys(auth2)
 
-    commitmentInfo = str(secret) + "||" + str(partialPrivateKey) + "||" + str(r)
     print(secret)
+    #commitmentInfo = str(secret) + "||" + str(partialPrivateKey) + "||" + str(r)
     ## Convert the commitmentInfo into bytes and send to server
-    commitmentInfo = str.encode(str(commitmentInfo))
-    sendCommitment(commitmentInfo,auth1)
+    #commitmentInfo = str.encode(str(commitmentInfo))
+    #sendCommitment(commitmentInfo,auth1)
 
     auth2.close()
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
