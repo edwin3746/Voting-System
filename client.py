@@ -16,19 +16,33 @@ def retrieveServerInformation():
     publicKey = ""
     global votingEnd
     candidateNames = ""
+    count = 0
 
     while not publicKey:
         receiveInfo.send(b'Requesting Public Key')
         publicKey = receiveInfo.recv(1024).decode("utf-8")
-
+        count += 1
+        if count == 10:
+            raise Exception()
+    
+    count = 0
+    
     while not votingEnd:
         receiveInfo.send(b'Requesting Voting Deadline')
         votingEnd = receiveInfo.recv(2048).decode("utf-8")
-
+        count += 1
+        if count == 10:
+            raise Exception()
+    
+    count = 0
+    
     while not candidateNames:
         receiveInfo.send(b'Requesting Candidate Names')
         candidateNames = receiveInfo.recv(2048).decode("utf-8")
-
+        count += 1
+        if count == 10:
+            raise Exception()
+            
     global candidates
     candidates.extend(candidateNames.split("||"))
     candidates[:] = [x for x in candidates if x != ""]
