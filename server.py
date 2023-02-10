@@ -14,6 +14,64 @@ server_address = ('127.0.0.1', 7777)
 def error():
     print("Oops! Something gone wrong!")
 
+def authenticatorPartialPrivateKey(g, p):
+    ## Create socket object and wait to receive Partial Private key from Authenticators
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(server_address)
+    server.listen(1)
+    commitment1valid = False
+    commitment2valid = False
+    commitmentInfo1 = ""
+    commitment1PartialPKey = ""
+    commitment1R= ""
+    commitment1Value = ""
+    commitmentInfo2 = ""
+    commitment2PartialPKey = ""
+    commitment2R= ""
+    commitment2Value = ""
+    counter = 0
+
+    while True:
+        try:
+            print("Waiting for Authenticator to send Partial Private Key / R / Commitment value")
+            connection, client_address = server.accept()
+            print("Connection From : ", client_address)
+            while True:
+                ## Ensure that the connection to retrieve Partial Private Key / R / Commitment value is only this 2 IP address
+                if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
+                    connection.sendall(b"Connection is secure")
+                    while not commitmentInfo1 and not commitment1valid and client_address[0] == "127.0.0.2":
+                        commitmentInfo1 = connection.recv(8192).decode("utf-8")
+                        commitment1Value = commitmentInfo1.split("||")[0]
+                        commitment1PartialKey = commitmentInfo1.split("||")[1]
+                        commitment1R = commitmentInfo1.split("||")[2]
+                        if (pow(g,commitment1PartialKey,p) * pow(commitment1PartialKey, commitment1R, p)) % p == commitment1Value:
+                            commitment1valid = True
+                            connection.sendall(b"Valid")
+                            break
+                        else:
+                            counter += 1
+                        if counter == 10:
+                            raise Exception()
+                    counter = 0
+                    while not commitmentInfo2 and not commitment2valid and client_address[0] == "127.0.0.3":
+                        commitmentInfo2 = connection.recv(8192).decode("utf-8")
+                        commitment2Value = commitmentInfo2.split("||")[0]
+                        commitment2PartialKey = commitmentInfo2.split("||")[1]
+                        commitment2R = commitmentInfo2.split("||")[2]
+                        if (pow(g,commitment2PartialKey,p) * pow(commitment2PartialKey, commitment2R, p)) % p == commitment2Value:
+                            commitment2valid = True
+                            connection.sendall(b"Valid")
+                            break
+                        else:
+                            counter += 1
+                        if counter == 10:
+                            raise Exception()
+        except Exception as e:
+            print("An error has occured: ", e)
+        if commitment1valid and commitment2valid:
+            return commitment1PartialKey, commitment2PartialKey
+
 def parseParamsToAuthenticator(publicKeyParamBytes):
     ## Create socket object and send public param q over
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -121,6 +179,8 @@ def main():
     publicKeyParamBytes = str.encode(publicKeyParam)
     parseParamsToAuthenticator(publicKeyParamBytes)
 
+    ## Retrieve all the partial private keys from authenticators with commitment verified
+    partialPrivateKey1, partialPrivateKey2 = authenticatorPartialPrivateKey(g, p)
 
     ## Generate the partial private key
     partialPrivateKey = number.getRandomRange(2, q-2)
