@@ -95,8 +95,10 @@ def parseParamsToAuthenticator(publicKeyParamBytes):
                     ## If the IP address received q
                     if msgCode == "Received q" and client_address[0] == "127.0.0.2":
                         auth1Count += 1
+                        print("Authenticator 1 received Q!")
                         break
                     elif msgCode == "Received q" and client_address[0] == "127.0.0.3":
+                        print("Authenticator 2 received Q!")
                         auth2Count += 1
                         break
                     elif client_address[0] == "127.0.0.2" and auth1Count == 0 or client_address[0] == "127.0.0.3" and auth2Count == 0:
@@ -105,6 +107,7 @@ def parseParamsToAuthenticator(publicKeyParamBytes):
             print("An error has occured: ", e)
         ## If both Authenticator received q then close connection
         if auth1Count == 1 and auth2Count == 1:
+            connection.sendall(b"Partial Private Key Generated Complete!")
             break
     server.close()
 
