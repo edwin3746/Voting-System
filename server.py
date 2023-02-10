@@ -22,8 +22,6 @@ def parseParamsToAuthenticator(publicKeyParamBytes):
     auth1Count = 0
     auth2Count = 0
     while True:
-        print (auth1Count)
-        print (auth2Count)
         try:
             print("Waiting for Authenticator to retrieve Public Q")
             connection, client_address = server.accept()
@@ -32,7 +30,6 @@ def parseParamsToAuthenticator(publicKeyParamBytes):
                 ## Ensure that the connection to retrieve q is only this 2 IP address
                 if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
                     msgCode = connection.recv(1024).decode("utf-8")
-                    print(msgCode)
                     ## If the IP address received q
                     if msgCode == "Received q" and client_address[0] == "127.0.0.2":
                         auth1Count += 1
@@ -133,7 +130,7 @@ def main():
     publicKeyBytes = str.encode(str(publicKey))
 
     ## Server running in the background
-    server = Thread(target = socketSetup, args=(publicKeyBytes,candidateNames,votingEnd))
+    server = Thread(target = socketSetupForPublic, args=(publicKeyBytes,candidateNames,votingEnd))
     server.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
