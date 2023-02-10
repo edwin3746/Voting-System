@@ -24,7 +24,7 @@ def retrievePublicKeys(receivePubKeyInfo):
         g = pubKeyInfo.split("||")[2]
         count += 1
         if count == 10:
-            break
+            raise Exception()
     if p and q and g:
         receivePubKeyInfo.send(b"Received q")
 
@@ -46,6 +46,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
