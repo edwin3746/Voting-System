@@ -60,6 +60,7 @@ def main():
         print("Server is not up!")
 
     commitmentInfo = str(secret) + "||" + str(partialPrivateKey) + "||" + str(r)
+    print(secret)
     ## Convert the commitmentInfo into bytes and send to server
     commitmentInfo = str.encode(str(commitmentInfo))
     sendCommitment(commitmentInfo,auth1)
@@ -68,6 +69,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
