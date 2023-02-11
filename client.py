@@ -62,10 +62,10 @@ def vote_page():
 
 @votePage.route('/vote', methods=['POST'])
 def process_vote():
-    vote = int(request.form['vote'])
-    # you can process the vote here, for example by saving it to a database
-
-    return "Thank you for your vote"
+    vote = request.form['vote']
+    candidate_index = int(vote) - 1
+    vote_str = '0' * candidate_index + '1' + '0' * (len(candidates) - candidate_index - 1)
+    return "Thank you for your vote for candidate " + candidates[candidate_index] + " with input " + vote_str
 
 if __name__ == "__main__":
     main()
