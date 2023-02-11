@@ -20,10 +20,11 @@
       {% for candidate in candidates %}
       <div>
         <label for="{{ candidate }}">{{ candidate }}</label>
-        <input type="radio" id="{{ candidate }}" class="voteOption" name="vote" value="1" onclick="allowOnlyOne(this.id)">
+        <input type="radio" id="{{ candidate }}" class="voteOption" name="vote" value="{{ loop.index }}" onclick="allowOnlyOne(this.id)">
       </div>
       {% endfor %}
       <input type="submit" value="Submit Vote">
+    </form>
       <h4>Voting ends on: {{ votingEnd }}</h4>
     </form>
   </body>
