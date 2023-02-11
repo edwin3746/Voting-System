@@ -192,7 +192,7 @@ def main():
 
     ## Generate the partial private key
     partialPrivateKey = number.getRandomRange(2, q-2)
-    publicKey = pow(g, partialPrivateKey*partialPrivateKey1*partialPrivateKey2, p)
+    publicKey = pow(g, partialPrivateKey*int(partialPrivateKey1)*int(partialPrivateKey2), p)
 
     ## Convert public key string and params to bytes to be send over using Socket
     publicKeyBytes = str.encode(str(publicKey))
