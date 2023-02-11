@@ -1,16 +1,15 @@
 import threading
+from threading import Lock
+from multiprocessing import Value
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes
 import datetime
 import socket
 import time
 
-## Pip install tinyec
 ## Pip install pycryptodomex
 
 server_address = ('127.0.0.1', 7777)
-stopSync = False
-threads = []
 
 ## This function is for countdown to indicate when to decrypt and tabulate the data
 def error():
@@ -23,105 +22,94 @@ def setupServer():
     return server
 
 def authenticatorPartialPrivateKey(g, p):
-    ## Create socket object and wait to receive Partial Private key from Authenticators
     server = setupServer()
-    commitment1valid = False
-    commitment2valid = False
-    commitmentInfo1 = ""
-    commitment1PartialPKey = ""
-    commitment1R= ""
-    commitment1Value = ""
-    commitmentInfo2 = ""
-    commitment2PartialPKey = ""
-    commitment2R= ""
-    commitment2Value = ""
-    counter = 0
+    auth1Count = 0
+    auth2Count = 0
+    auth1Secret = ""
+    auth1PartialPrivateKey = ""
+    auth1R = ""
+    auth2Secret = ""
+    auth2PartialPrivateKey = ""
+    auth2R = ""
 
-    while True:
-        try:
-            print("Waiting for Authenticator to send Partial Private Key / R / Commitment value")
-            connection, client_address = server.accept()
-            print("Connection From : ", client_address)
-            while True:
-                ## Ensure that the connection to retrieve Partial Private Key / R / Commitment value is only this 2 IP address
-                if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
-                    connection.sendall(b"Connection is secure")
-                    while not commitmentInfo1 and not commitment1valid and client_address[0] == "127.0.0.2":
-                        commitmentInfo1 = connection.recv(8192).decode("utf-8")
-                        commitment1Value = commitmentInfo1.split("||")[0]
-                        commitment1PartialKey = commitmentInfo1.split("||")[1]
-                        commitment1R = commitmentInfo1.split("||")[2]
-                        value = (pow(g,commitment1PartialKey,p) * pow(commitment1PartialKey, commitment1R, p)) % p
-                        if value == commitment1Value:
-                            commitment1valid = True
-                            print(value)
-                            connection.sendall(b"Valid")
-                            break
-                        else:
-                            counter += 1
-                        if counter == 10:
-                            raise Exception()
-                    counter = 0
-                    while not commitmentInfo2 and not commitment2valid and client_address[0] == "127.0.0.3":
-                        commitmentInfo2 = connection.recv(8192).decode("utf-8")
-                        commitment2Value = commitmentInfo2.split("||")[0]
-                        commitment2PartialKey = commitmentInfo2.split("||")[1]
-                        commitment2R = commitmentInfo2.split("||")[2]
-                        value = (pow(g,commitment2PartialKey,p) * pow(commitment2PartialKey, commitment2R, p)) % p
-                        if value == commitment2Value:
-                            commitment2valid = True
-                            print(value)
-                            connection.sendall(b"Valid")
-                            break
-                        else:
-                            counter += 1
-                        if counter == 10:
-                            raise Exception()
-        except Exception as e:
-            print("An error has occured: ", e)
-        if commitment1valid and commitment2valid:
-            return commitment1PartialKey, commitment2PartialKey
+    print("Waiting for Authenticator to send Partial Private Key / R / Commitment value")
+    while auth1Count == 0 or auth2Count == 0:
+        ## Accept all incoming conections
+        connection, client_address = server.accept()
+        ## Ensure that the connection to retrieve q is only this 2 IP address
+        if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
+            connection.sendall(b'Connection is secure')
+            msgCode = connection.recv(8192).decode("utf-8")
+            if client_address[0] == "127.0.0.2":
+                auth1Secret = msgCode.split("||")[0]
+                auth1PartialPrivateKey = msgCode.split("||")[1]
+                auth1R = msgCode.split("||")[2]
+                if (pow(g,int(auth1PartialPrivateKey),p) * pow(int(auth1PartialPrivateKey),int(auth1R),p)) % p:
+                    auth1Count = 1
+                    connection.sendall(b'Valid')
+                else:
+                    connection.sendall(b'Invalid')
+
+            elif client_address[0] == "127.0.0.3":
+                auth2Secret = msgCode.split("||")[0]
+                auth2PartialPrivateKey = msgCode.split("||")[1]
+                auth2R = msgCode.split("||")[2]
+                if (pow(g,int(auth2PartialPrivateKey),p) * pow(int(auth2PartialPrivateKey),int(auth2R),p)) % p:
+                    auth2Count = 1
+                    connection.sendall(b'Valid')
+                else:
+                    connection.sendall(b'Invalid')
+        else:
+            print("Invalid Connections!")
+    return auth1PartialPrivateKey, auth2PartialPrivateKey
 
 def sendParamsToAuthenticator(publicKeyParamBytes, connection, client_address):
-    global stopSync
-    while not stopSync:
+    while True:
         msgCode = connection.recv(1024).decode("utf-8")
         if msgCode == "Received Q!" and client_address[0] == "127.0.0.2":
             print("Authenticator 1 received Q!")
+            break
         elif msgCode == "Received Q!" and client_address[0] == "127.0.0.3":
             print("Authenticator 2 received Q!")
+            break
         else:
             connection.sendall(publicKeyParamBytes)
 
-    connection.sendall(b"Partial Private Key Generated Complete!")
-
-
 def syncConnectionToAuthenticator(publicKeyParamBytes):
-    global stopSync
     ## Create socket object and send public param q over
     server = setupServer()
     auth1Count = 0
     auth2Count = 0
-    while True:
-        print("Waiting for Authenticator to retrieve Public Q")
+    connections = []
+    threads = []
+    stopSync = threading.Event()
+
+    print("Waiting for Authenticator to retrieve Public Q")
+    while auth1Count == 0 or auth2Count == 0:
+        ## Accept all incoming conections
         connection, client_address = server.accept()
         ## Ensure that the connection to retrieve q is only this 2 IP address
         if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
-            t = threading.Thread(target = sendParamsToAuthenticator, args=(publicKeyParamBytes, connection, client_address))
-            threads.append(t)
-            t.start()
+            thread = threading.Thread(target = sendParamsToAuthenticator, args=(publicKeyParamBytes, connection, client_address))
+            threads.append(thread)
+            thread.start()
+            connections.append(connection)
             if client_address[0] == "127.0.0.2":
                 auth1Count = 1
             elif client_address[0] == "127.0.0.3":
                 auth2Count = 1
             if auth1Count == 1 and auth2Count == 1:
-                stopSync = True
-                time.sleep(2)
                 break
         else:
             print("Invalid Connections!")
-    for t in threads:
-        t.join()
+
+    ## Notify the threads to stop
+    stopSync.set()
+    ## Send the message for the threads to continue
+    for con in connections:
+        con.send(b"Partial Private Key Generated Complete!")
+    for thread in threads:
+        thread.join()
     server.close()
 
 def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd):
@@ -147,7 +135,7 @@ def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd):
 
 def collateVotes():
     ## Decrypting and count all the votes
-    printf("Decrypt!")
+    print("Decrypt!")
 
 def generate_primes():
     p = number.getPrime(2048)
@@ -204,7 +192,7 @@ def main():
 
     ## Generate the partial private key
     partialPrivateKey = number.getRandomRange(2, q-2)
-    publicKey = pow(g, partialPrivateKey, p)
+    publicKey = pow(g, partialPrivateKey*partialPrivateKey1*partialPrivateKey2, p)
 
     ## Convert public key string and params to bytes to be send over using Socket
     publicKeyBytes = str.encode(str(publicKey))
