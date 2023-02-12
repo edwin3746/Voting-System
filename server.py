@@ -10,6 +10,8 @@ import time
 ## Pip install pycryptodomex
 
 server_address = ('127.0.0.1', 7777)
+votes = {}
+voters = []
 
 ## This function is for countdown to indicate when to decrypt and tabulate the data
 def error():
@@ -112,9 +114,8 @@ def syncConnectionToAuthenticator(publicKeyParamBytes):
         thread.join()
     server.close()
 
-def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes):
-    ## Create socket object and send public key over
-    server = setupServer()
+def socketSetupForPublic(server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes):
+    ## Socket will keep releasing public information to voters who connect
     while True:
         try:
             print("Waiting for client to retrieve Public Information")
@@ -131,12 +132,27 @@ def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd, pParamBytes, g
                 elif msgCode == "Requesting Public P":
                     connection.sendall(pParamBytes)
                 elif msgCode == "Requesting Public G":
-                    
                     connection.sendall(gParamBytes)
                 else:
                     connection.sendall(b"An error has occured!")
         except Exception as e:
             print("An error has occured: ", e)
+
+def receiveVotes(server, votingEnd):
+    ## Socket will keep receiving votes from voters who connect
+    global voters
+    global votes
+    while True:
+        ## Accept all incoming connections
+        connection, client_address = server.accept()
+        vote = connection.recv(1024).decode("utf-8")
+        if client_address not in voters:
+            ## NEED TO DO ZKP HERE!!!!!
+            voters.append(client_address)
+            votes[client_address] = vote
+        else:
+            connection.send(b'You have already voted. Results will be released at ' + votingEnd)
+
 
 def collateVotes():
     ## Decrypting and count all the votes
@@ -197,7 +213,7 @@ def main():
     gParam = str(g)
     pParamBytes = str.encode(pParam)
     gParamBytes = str.encode(gParam)
- 
+
 
     ## Retrieve all the partial private keys from authenticators with commitment verified
     partialPrivateKey1, partialPrivateKey2 = authenticatorPartialPrivateKey(g, p)
@@ -210,14 +226,19 @@ def main():
     publicKeyBytes = str.encode(str(publicKey))
 
     ## Server running in the background
-    server = threading.Thread(target = socketSetupForPublic, args=(publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes))
-    server.start()
+    server = setupServer()
+    sendInfoToVoters = threading.Thread(target = socketSetupForPublic, args=(server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes))
+    sendInfoToVoters.start()
+    receiveServer = threading.Thread(target = receiveVotes, args=(server,votingEnd))
+    receiveServer.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
     timeDifference = votingEndDate - datetime.datetime.now()
     timeDifferenceinSec = timeDifference.total_seconds()
     time.sleep(timeDifferenceinSec)
-    server.stop()
+    sendInfoToVoters.stop()
+    receiveServer.stop()
+    server.close()
     collateVotes()
 
 if __name__ == "__main__":
