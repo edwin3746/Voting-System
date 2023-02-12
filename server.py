@@ -112,7 +112,7 @@ def syncConnectionToAuthenticator(publicKeyParamBytes):
         thread.join()
     server.close()
 
-def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd):
+def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes):
     ## Create socket object and send public key over
     server = setupServer()
     while True:
@@ -128,6 +128,11 @@ def socketSetupForPublic(publicKeyBytes,candidateNames,votingEnd):
                     connection.sendall(publicKeyBytes)
                 elif msgCode == "Requesting Candidate Names":
                     connection.sendall(candidateNames)
+                elif msgCode == "Requesting Public P":
+                    connection.sendall(pParamBytes)
+                elif msgCode == "Requesting Public G":
+                    
+                    connection.sendall(gParamBytes)
                 else:
                     connection.sendall(b"An error has occured!")
         except Exception as e:
@@ -187,6 +192,13 @@ def main():
     publicKeyParamBytes = str.encode(publicKeyParam)
     syncConnectionToAuthenticator(publicKeyParamBytes)
 
+    ## Convert p and g to bytes to be send over to client using Socket
+    pParam = str(p)
+    gParam = str(g)
+    pParamBytes = str.encode(pParam)
+    gParamBytes = str.encode(gParam)
+ 
+
     ## Retrieve all the partial private keys from authenticators with commitment verified
     partialPrivateKey1, partialPrivateKey2 = authenticatorPartialPrivateKey(g, p)
 
@@ -198,7 +210,7 @@ def main():
     publicKeyBytes = str.encode(str(publicKey))
 
     ## Server running in the background
-    server = threading.Thread(target = socketSetupForPublic, args=(publicKeyBytes,candidateNames,votingEnd))
+    server = threading.Thread(target = socketSetupForPublic, args=(publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes))
     server.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
