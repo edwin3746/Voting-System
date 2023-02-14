@@ -85,6 +85,23 @@ def retrieveServerInformation(receiveInfo):
 
 def sendVotes(server, encryptedVotes):
     server.send(encryptedVotes)
+    count = 0
+
+    while True:
+        msgCode = connection.recv(1024).decode("utf-8")
+        if msgCode == "Vote has been tampered":
+            print("Invalid")
+            break
+        elif "You have already voted" in msgCode:
+            print(msgCode)
+            break
+        elif "Vote is valid":
+            print("Thank you for your vote!")
+            break
+        server.send(encryptedVotes)
+        count += 1
+        if count == 10:
+            raise Exception()
 
 
 def encrypt(message, p, g, public_key):
@@ -127,10 +144,18 @@ def process_vote():
         voteConcat = a + '|' + b
         encrypted_vote.append(voteConcat + "||")
     print(encrypted_vote)
-    sendVotes(encrypted_vote)
+
+    try:
+        sendVotes(encrypted_vote)
+    except:
+        print("An error has occured")
+
     return render_template("voteResult.html",  candidate_index=candidate_index, candidates=candidates, vote_str=vote_str)
 
 
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
