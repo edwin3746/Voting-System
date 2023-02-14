@@ -52,8 +52,6 @@ def retrieveServerInformation():
     candidates.extend(candidateNames.split("||"))
     candidates[:] = [x for x in candidates if x != ""]
 
-    print("Client P is : " + pParamBytes)
-    print("Client G is : " + gParamBytes)
     print(candidates)
     print(votingEnd)
     receiveInfo.close()
@@ -77,12 +75,26 @@ def vote_page():
 
 @votePage.route('/vote', methods=['POST'])
 def process_vote():
-    global encrypted_vote
+    global vote_list
     vote = request.form['vote']
-    candidate_index = int(vote) - 1
-    vote_str = '0' * candidate_index + '1' + '0' * (len(candidates) - candidate_index - 1)
-    encrypted_vote = encrypt(int(vote_str), int(pParamBytes), int(gParamBytes), int(publicKey))
-    #print(encrypted_vote) after encrypting this variable can be accessed outside le
+    
+    #format candidate selection to numbers
+    vote_str = '0' * len(candidates) # initializing the string with 0's
+    candidate_index = int(vote) - 1 # getting the selected candidate
+    vote_str = vote_str[:candidate_index] + '1' + vote_str[candidate_index + 1:] # setting the selected candidate to 1
+
+    #convert each string in vote_list to int
+    vote_list_bytes = [bytes(x, "utf-8") for x in vote_str]
+    print(vote_list_bytes)
+
+    #call the encrypt function for each vote result in the vote list
+    encrypted_vote = []
+    for vote in range(len(vote_list_bytes)):
+        print("Round ",vote)
+        print(vote_list_bytes[vote])
+        a, b = encrypt(int.from_bytes(vote_list_bytes[vote]), int(pParamBytes), int(gParamBytes), int(publicKey))
+        encrypted_vote.append((a, b))
+    print(encrypted_vote)
     return render_template("voteResult.html",  candidate_index=candidate_index, candidates=candidates, vote_str=vote_str)
     
 
