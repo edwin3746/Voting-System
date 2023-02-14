@@ -17,36 +17,62 @@ gParamBytes = ""
 vote_str = ""
 publicKey = ""
 
+def startServer():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.connect(server_address)
+    return server
 
 
-def retrieveServerInformation():
-    receiveInfo = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    receiveInfo.connect(server_address)
+def retrieveServerInformation(receiveInfo):
     global publicKey
     global votingEnd
     global pParamBytes
     global gParamBytes
     candidateNames = ""
+    count = 0
 
     while not publicKey:
         receiveInfo.send(b'Requesting Public Key')
         publicKey = receiveInfo.recv(8192).decode("utf-8")
+        count += 1
+        if count == 10:
+            raise Exception()
+
+    count = 0
 
     while not votingEnd:
         receiveInfo.send(b'Requesting Voting Deadline')
         votingEnd = receiveInfo.recv(2048).decode("utf-8")
+        count += 1
+        if count == 10:
+            raise Exception()
+
+    count = 0
 
     while not candidateNames:
         receiveInfo.send(b'Requesting Candidate Names')
         candidateNames = receiveInfo.recv(2048).decode("utf-8")
+        count += 1
+        if count == 10:
+            raise Exception()
+
+    count = 0
 
     while not pParamBytes:
         receiveInfo.send(b'Requesting Public P')
         pParamBytes = receiveInfo.recv(2048).decode("utf-8")
+        count += 1
+        if count == 10:
+            raise Exception()
+
+    count = 0
 
     while not gParamBytes:
         receiveInfo.send(b'Requesting Public G')
         gParamBytes = receiveInfo.recv(2048).decode("utf-8")
+        count += 1
+        if count == 10:
+            raise Exception()
 
     global candidates
     candidates.extend(candidateNames.split("||"))
@@ -57,6 +83,10 @@ def retrieveServerInformation():
     receiveInfo.close()
     return pParamBytes, gParamBytes, publicKey
 
+def sendVotes(server, encryptedVotes):
+    server.send(encryptedVotes)
+
+
 def encrypt(message, p, g, public_key):
     k = number.getRandomRange(2, p-2)
     a = pow(g, k, p)
@@ -66,18 +96,19 @@ def encrypt(message, p, g, public_key):
 
 def main():
     global pParamBytes, gParamBytes, publicKey
-    pParamBytes, gParamBytes, publicKey = retrieveServerInformation()
-    votePage.run()   
+    server = startServer()
+    pParamBytes, gParamBytes, publicKey = retrieveServerInformation(server)
+    votePage.run()
 
 @votePage.route('/')
-def vote_page():    
+def vote_page():
     return render_template('vote.html', candidates=candidates, votingEnd=votingEnd)
 
 @votePage.route('/vote', methods=['POST'])
 def process_vote():
     global vote_list
     vote = request.form['vote']
-    
+
     #format candidate selection to numbers
     vote_str = '0' * len(candidates) # initializing the string with 0's
     candidate_index = int(vote) - 1 # getting the selected candidate
@@ -93,10 +124,12 @@ def process_vote():
         print("Round ",vote)
         print(vote_list_bytes[vote])
         a, b = encrypt(int.from_bytes(vote_list_bytes[vote]), int(pParamBytes), int(gParamBytes), int(publicKey))
-        encrypted_vote.append((a, b))
+        voteConcat = a + '|' + b
+        encrypted_vote.append(voteConcat + "||")
     print(encrypted_vote)
+    sendVotes(encrypted_vote)
     return render_template("voteResult.html",  candidate_index=candidate_index, candidates=candidates, vote_str=vote_str)
-    
+
 
 
 if __name__ == "__main__":
