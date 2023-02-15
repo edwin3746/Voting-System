@@ -1,11 +1,11 @@
 import threading
-from threading import Lock
-from multiprocessing import Value
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes
+from Crypto.Util.number import isPrime
 import datetime
 import socket
 import time
+import random
 
 ## Pip install pycryptodomex
 
@@ -159,13 +159,22 @@ def collateVotes():
     print("Decrypt!")
 
 def generate_primes():
-    p = number.getPrime(2048)
+    p = 0
     q = number.getPrime(256)
+    s = random.randrange(2**1790, 2**1791)
+
+    ## Checks is p is prime and at least 2048 bits
+    while not isPrime(p) or not p.bit_length() == 2048:
+        p = 2 * q * s + 1
+        s += 1
     return p, q
 
 def generate_g(p, q):
-    h = number.getRandomRange(2, p-2)
-    g = pow(h, (p-1)//q, p)
+    g = 0
+    ## Check if g is a generator of a finite group of prime order q
+    while not g > 1 or not pow(g,q,p):
+        h = number.getRandomRange(2, p-2)
+        g = pow(h, (p-1)//q, p)
     return g
 
 def main():
