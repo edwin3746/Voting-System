@@ -160,13 +160,17 @@ def collateVotes():
 
 def generate_primes():
     p = 0
+    s = 0
     q = number.getPrime(256)
-    s = random.randrange(2**1790, 2**1791)
 
-    ## Checks is p is prime and at least 2048 bits
-    while not isPrime(p) or not p.bit_length() == 2048:
-        p = 2 * q * s + 1
+    while not isPrime(p):
+        print(p.bit_length())
+        while not p.bit_length() == 2048:
+            s = random.randrange(2**1790, 2**1791)
+            p = 2 * q * s + 1
         s += 1
+        p = 2 * q * s + 1
+
     return p, q
 
 def generate_g(p, q):
@@ -252,3 +256,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
