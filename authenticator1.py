@@ -1,12 +1,15 @@
 import socket
 import time
+import os
+import ssl
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes
+from server import server_address as server_address
 
 ## Pip install pycryptodomex
 
-server_address = ('127.0.0.1',7777)
 port = number.getRandomRange(1, 65536)
+currentPath = os.getcwd()
 auth1_address = ('127.0.0.2',port)
 
 def generate_r(q):
@@ -65,6 +68,10 @@ def retrievePublicKeys(receivePubKeyInfo):
 
 def startSocket():
     auth1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    auth1.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    auth1 = ssl.wrap_socket(auth1, keyfile=currentPath+"\key.pem", certfile=currentPath+"\certificate.pem")
+
     auth1.bind(auth1_address)
     return auth1
 
@@ -95,6 +102,12 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
 
 
 
