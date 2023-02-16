@@ -6,10 +6,13 @@ import datetime
 import socket
 import time
 import random
+import ssl
+import os
 
 ## Pip install pycryptodomex
 
 server_address = ('127.0.0.1', 7777)
+currentPath = os.getcwd()
 votes = {}
 voters = []
 
@@ -19,6 +22,10 @@ def error():
 
 def setupServer():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    server = ssl.wrap_socket(server, keyfile=currentPath+"\key.pem", certfile=currentPath+"\certificate.pem")
+
     server.bind(server_address)
     server.listen(2)
     return server
@@ -48,8 +55,10 @@ def authenticatorPartialPrivateKey(g, p):
                 auth1R = msgCode.split("||")[2]
                 if (pow(g,int(auth1PartialPrivateKey),p) * pow(int(auth1PartialPrivateKey),int(auth1R),p)) % p:
                     auth1Count = 1
+                    print("Authenticator 1 partial public key is valid!")
                     connection.sendall(b'Valid')
                 else:
+                    print("Error! Maybe someone else tried to send partial public key!")
                     connection.sendall(b'Invalid')
 
             elif client_address[0] == "127.0.0.3":
@@ -58,8 +67,10 @@ def authenticatorPartialPrivateKey(g, p):
                 auth2R = msgCode.split("||")[2]
                 if (pow(g,int(auth2PartialPrivateKey),p) * pow(int(auth2PartialPrivateKey),int(auth2R),p)) % p:
                     auth2Count = 1
+                    print("Authenticator 2 partial public key is valid!")
                     connection.sendall(b'Valid')
                 else:
+                    print("Error! Maybe someone else tried to send partial public key!")
                     connection.sendall(b'Invalid')
         else:
             print("Invalid Connections!")
@@ -256,4 +267,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
