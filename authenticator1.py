@@ -2,8 +2,10 @@ import socket
 import time
 import os
 import ssl
+from hashlib import sha256
+
 from Cryptodome.Util import number
-from Cryptodome.Random import get_random_bytes
+from Cryptodome.Random import get_random_bytes, random
 from server import server_address as server_address
 
 ## Pip install pycryptodomex
@@ -59,12 +61,31 @@ def retrievePublicKeys(receivePubKeyInfo):
 
     ## Generate part of private key here (g^x mod p)
     partialx = number.getRandomRange(2,int(q)-2)
-    partialPrivateKey = pow(g, partialx, p)
+    partialPublicKey = pow(g, partialx, p)
 
     ## Commitment
     r = generate_r(q)
-    secret = (pow(g,partialPrivateKey,p) * pow(partialPrivateKey, r, p)) % p
-    return secret,partialPrivateKey,r
+    secret = (pow(g,partialPublicKey,p) * pow(partialPublicKey, r, p)) % p
+    return secret,partialPublicKey,r
+
+# partial decrypt function
+def partialDecrypt(a, privateKey, p):
+    return pow(a, p-1-privateKey, p)
+
+# creating the Schnorr signature
+def schnorrSignature(p, q, g, privateKey, message):
+    r = random.randint(1, q - 1)
+    x = pow(g, r, p)
+    e = hashThis(x, message) % p
+    s = pow((r - (privateKey * e)), 1, p - 1)
+    return e, s
+
+# sample hash function
+def hashThis(r, message):
+    hash=sha256();
+    hash.update(str(r).encode());
+    hash.update(message.encode());
+    return int(hash.hexdigest(),16)
 
 def startSocket():
     auth1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -78,20 +99,24 @@ def startSocket():
 def main():
     auth1 = startSocket()
     secret = ""
-    partialPrivateKey = ""
+    partialPublicKey = ""
     r = ""
     count = 0
 
-    while not secret or not partialPrivateKey or not r:
+    # this message is to determine which server/authenticator sent the Schnorr signature
+    message = "auth1"
+    messageInASCII = ''.join(str(ord(c)) for c in message)
+
+    while not secret or not partialPublicKey or not r:
         try:
-            secret,partialPrivateKey,r = retrievePublicKeys(auth1)
+            secret, partialPublicKey, r = retrievePublicKeys(auth1)
         except:
             print("An error has occured")
             count += 1
         if count == 10:
             print("Please restart the server")
 
-    commitmentInfo = str(secret) + "||" + str(partialPrivateKey) + "||" + str(r)
+    commitmentInfo = str(secret) + "||" + str(partialPublicKey) + "||" + str(r)
     ## Convert the commitmentInfo into bytes and send to server
     commitmentInfo = str.encode(str(commitmentInfo))
 

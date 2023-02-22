@@ -1,34 +1,30 @@
 import threading
+from hashlib import sha256
+from threading import Lock
+from multiprocessing import Value
 from Cryptodome.Util import number
-from Cryptodome.Random import get_random_bytes
 from Crypto.Util.number import isPrime
+from Cryptodome.Random import get_random_bytes, random
 import datetime
 import socket
 import time
-import random
-import ssl
-import os
 
 ## Pip install pycryptodomex
 
 server_address = ('127.0.0.1', 7777)
-currentPath = os.getcwd()
-votes = {}
-voters = []
+
 
 ## This function is for countdown to indicate when to decrypt and tabulate the data
 def error():
     print("Oops! Something gone wrong!")
 
+
 def setupServer():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-    server = ssl.wrap_socket(server, keyfile=currentPath+"\key.pem", certfile=currentPath+"\certificate.pem")
-
     server.bind(server_address)
     server.listen(2)
     return server
+
 
 def authenticatorPartialPrivateKey(g, p):
     server = setupServer()
@@ -53,28 +49,25 @@ def authenticatorPartialPrivateKey(g, p):
                 auth1Secret = msgCode.split("||")[0]
                 auth1PartialPrivateKey = msgCode.split("||")[1]
                 auth1R = msgCode.split("||")[2]
-                if (pow(g,int(auth1PartialPrivateKey),p) * pow(int(auth1PartialPrivateKey),int(auth1R),p)) % p:
+                if (pow(g, int(auth1PartialPrivateKey), p) * pow(int(auth1PartialPrivateKey), int(auth1R), p)) % p:
                     auth1Count = 1
-                    print("Authenticator 1 partial public key is valid!")
                     connection.sendall(b'Valid')
                 else:
-                    print("Error! Maybe someone else tried to send partial public key!")
                     connection.sendall(b'Invalid')
 
             elif client_address[0] == "127.0.0.3":
                 auth2Secret = msgCode.split("||")[0]
                 auth2PartialPrivateKey = msgCode.split("||")[1]
                 auth2R = msgCode.split("||")[2]
-                if (pow(g,int(auth2PartialPrivateKey),p) * pow(int(auth2PartialPrivateKey),int(auth2R),p)) % p:
+                if (pow(g, int(auth2PartialPrivateKey), p) * pow(int(auth2PartialPrivateKey), int(auth2R), p)) % p:
                     auth2Count = 1
-                    print("Authenticator 2 partial public key is valid!")
                     connection.sendall(b'Valid')
                 else:
-                    print("Error! Maybe someone else tried to send partial public key!")
                     connection.sendall(b'Invalid')
         else:
             print("Invalid Connections!")
     return auth1PartialPrivateKey, auth2PartialPrivateKey
+
 
 def sendParamsToAuthenticator(publicKeyParamBytes, connection, client_address):
     while True:
@@ -87,6 +80,7 @@ def sendParamsToAuthenticator(publicKeyParamBytes, connection, client_address):
             break
         else:
             connection.sendall(publicKeyParamBytes)
+
 
 def syncConnectionToAuthenticator(publicKeyParamBytes):
     ## Create socket object and send public param q over
@@ -103,7 +97,8 @@ def syncConnectionToAuthenticator(publicKeyParamBytes):
         connection, client_address = server.accept()
         ## Ensure that the connection to retrieve q is only this 2 IP address
         if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
-            thread = threading.Thread(target = sendParamsToAuthenticator, args=(publicKeyParamBytes, connection, client_address))
+            thread = threading.Thread(target=sendParamsToAuthenticator,
+                                      args=(publicKeyParamBytes, connection, client_address))
             threads.append(thread)
             thread.start()
             connections.append(connection)
@@ -125,8 +120,10 @@ def syncConnectionToAuthenticator(publicKeyParamBytes):
         thread.join()
     server.close()
 
-def socketSetupForPublic(server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes):
-    ## Socket will keep releasing public information to voters who connect
+
+def socketSetupForPublic(publicKeyBytes, candidateNames, votingEnd, pParamBytes, gParamBytes):
+    ## Create socket object and send public key over
+    server = setupServer()
     while True:
         try:
             print("Waiting for client to retrieve Public Information")
@@ -143,31 +140,18 @@ def socketSetupForPublic(server,publicKeyBytes,candidateNames,votingEnd, pParamB
                 elif msgCode == "Requesting Public P":
                     connection.sendall(pParamBytes)
                 elif msgCode == "Requesting Public G":
+
                     connection.sendall(gParamBytes)
                 else:
                     connection.sendall(b"An error has occured!")
         except Exception as e:
             print("An error has occured: ", e)
 
-def receiveVotes(server, votingEnd):
-    ## Socket will keep receiving votes from voters who connect
-    global voters
-    global votes
-    while True:
-        ## Accept all incoming connections
-        connection, client_address = server.accept()
-        vote = connection.recv(1024).decode("utf-8")
-        if client_address not in voters:
-            ## NEED TO DO ZKP HERE!!!!!
-            voters.append(client_address)
-            votes[client_address] = vote
-        else:
-            connection.send(b'You have already voted. Results will be released at ' + votingEnd)
-
 
 def collateVotes():
     ## Decrypting and count all the votes
     print("Decrypt!")
+
 
 def generate_primes():
     p = 0
@@ -177,20 +161,52 @@ def generate_primes():
     while not isPrime(p):
         print(p.bit_length())
         while not p.bit_length() == 2048:
-            s = random.randrange(2**1790, 2**1791)
+            s = random.randrange(2 ** 1790, 2 ** 1791)
             p = 2 * q * s + 1
         s += 1
         p = 2 * q * s + 1
 
     return p, q
 
+
 def generate_g(p, q):
     g = 0
     ## Check if g is a generator of a finite group of prime order q
-    while not g > 1 or not pow(g,q,p):
-        h = number.getRandomRange(2, p-2)
-        g = pow(h, (p-1)//q, p)
-    return g
+    while not g > 1 or not pow(g, q, p):
+        h = number.getRandomRange(2, p - 2)
+        g = pow(h, (p - 1) // q, p)
+    return
+
+# partial decrypt function
+def partialDecrypt(a, privateKey, p):
+    return pow(a, p-1-privateKey, p)
+
+# full decrypt function, assuming 3 authenticators
+def fullDecrypt(partialDecrypted1, partialDecrypted2, partialDecrypted3, p, ciphertext):
+    # can replace ciphertext with b if you want
+    a, b = ciphertext
+    return pow(partialDecrypted1 * partialDecrypted2 * partialDecrypted3 * b, 1, p)
+
+# creating the Schnorr signature
+def schnorrSignature(p, q, g, privateKey, message):
+    r = random.randint(1, q - 1)
+    x = pow(g, r, p)
+    e = hashThis(x, message) % p
+    s = pow((r - (privateKey * e)), 1, p - 1)
+    return e, s
+
+# sample hash function
+def hashThis(r, message):
+    hash=sha256();
+    hash.update(str(r).encode());
+    hash.update(message.encode());
+    return int(hash.hexdigest(),16)
+
+# verification of Schnorr signature
+def verifySchnorr(p, g, s, e, publicKey, message):
+    rv = pow(pow(g, s, p) * pow(publicKey, e, p), 1, p)
+    ev = hashThis(rv, message) % p
+    return ev == e
 
 def main():
     ## Retrieve the number of candidates and their names respectively
@@ -200,11 +216,15 @@ def main():
     name = ""
     votingHours = ""
 
+    # this message is to determine which server/authenticator sent the Schnorr signature
+    message = "server"
+    messageInASCII = ''.join(str(ord(c)) for c in message)
+
     while num == "":
         num = input("Enter the number of candidates : ")
     for loop in range(int(num)):
         while name == "":
-            name = input("Enter the name of candidate " + str(loop+1) + ":" )
+            name = input("Enter the name of candidate " + str(loop + 1) + ":")
             candidates.append(name)
         name = ""
 
@@ -215,10 +235,10 @@ def main():
     candidateNames = str.encode(candidateNames)
 
     while votingHours == "":
-        votingHours = input ("Enter the number of hours allowed to vote : ")
+        votingHours = input("Enter the number of hours allowed to vote : ")
 
     ## Convert to hours and then to bytes
-    votingEndDate = datetime.datetime.now() + datetime.timedelta(hours = int(votingHours))
+    votingEndDate = datetime.datetime.now() + datetime.timedelta(hours=int(votingHours))
     votingEnd = str.encode(votingEndDate.strftime("%Y-%m-%d %H:%M:%S"))
 
     print("Initializing....Generating parameters")
@@ -238,34 +258,28 @@ def main():
     pParamBytes = str.encode(pParam)
     gParamBytes = str.encode(gParam)
 
-
     ## Retrieve all the partial private keys from authenticators with commitment verified
     partialPrivateKey1, partialPrivateKey2 = authenticatorPartialPrivateKey(g, p)
 
     ## Generate the partial private key
-    partialPrivateKey = number.getRandomRange(2, q-2)
-    publicKey = pow(g, partialPrivateKey*int(partialPrivateKey1)*int(partialPrivateKey2), p)
+    partialPrivateKey = number.getRandomRange(2, q - 2)
+    publicKey = pow(g, partialPrivateKey * int(partialPrivateKey1) * int(partialPrivateKey2), p)
 
     ## Convert public key string and params to bytes to be send over using Socket
     publicKeyBytes = str.encode(str(publicKey))
 
     ## Server running in the background
-    server = setupServer()
-    sendInfoToVoters = threading.Thread(target = socketSetupForPublic, args=(server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes))
-    sendInfoToVoters.start()
-    receiveServer = threading.Thread(target = receiveVotes, args=(server,votingEnd))
-    receiveServer.start()
+    server = threading.Thread(target=socketSetupForPublic,
+                              args=(publicKeyBytes, candidateNames, votingEnd, pParamBytes, gParamBytes))
+    server.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
     timeDifference = votingEndDate - datetime.datetime.now()
     timeDifferenceinSec = timeDifference.total_seconds()
     time.sleep(timeDifferenceinSec)
-    sendInfoToVoters.stop()
-    receiveServer.stop()
-    server.close()
+    server.stop()
     collateVotes()
+
 
 if __name__ == "__main__":
     main()
-
-
