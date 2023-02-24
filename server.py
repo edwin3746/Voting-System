@@ -1,73 +1,110 @@
 import threading
-from hashlib import sha256
-from threading import Lock
-from multiprocessing import Value
 from Cryptodome.Util import number
+from Cryptodome.Random import get_random_bytes
 from Crypto.Util.number import isPrime
-from Cryptodome.Random import get_random_bytes, random
 import datetime
 import socket
 import time
+import random
+import ssl
+import os
 
 ## Pip install pycryptodomex
 
 server_address = ('127.0.0.1', 7777)
-
+currentPath = os.getcwd()
+votes = {}
+voters = []
 
 ## This function is for countdown to indicate when to decrypt and tabulate the data
 def error():
     print("Oops! Something gone wrong!")
 
-
 def setupServer():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(server_address)
-    server.listen(2)
-    return server
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(certfile="server.crt", keyfile="server.key")
 
-def authenticatorPartialPrivateKey(g, p):
-    server = setupServer()
+    server_socket.bind(server_address)
+    server_socket.listen()
+    return ssl_context, server_socket
+
+def authenticatorPartialPublicKey(ssl_context,server,auth1Secret,auth2Secret,g,p):
     auth1Count = 0
     auth2Count = 0
-    auth1Secret = ""
     auth1PartialPrivateKey = ""
     auth1R = ""
-    auth2Secret = ""
     auth2PartialPrivateKey = ""
     auth2R = ""
 
-    print("Waiting for Authenticator to send Partial Private Key / R / Commitment value")
+    print("Waiting for Authenticator to send Partial Public Key / R")
     while auth1Count == 0 or auth2Count == 0:
         ## Accept all incoming conections
         connection, client_address = server.accept()
+        ssl_con = ssl_context.wrap_socket(connection, server_side=True)
         ## Ensure that the connection to retrieve q is only this 2 IP address
         if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
-            connection.sendall(b'Connection is secure')
-            msgCode = connection.recv(8192).decode("utf-8")
+            ssl_con.sendall(b'Connection is secure')
+            msgCode = ssl_con.recv(8192).decode("utf-8")
             if client_address[0] == "127.0.0.2":
-                auth1Secret = msgCode.split("||")[0]
-                auth1PartialPrivateKey = msgCode.split("||")[1]
-                auth1R = msgCode.split("||")[2]
-                if (pow(g, int(auth1PartialPrivateKey), p) * pow(int(auth1PartialPrivateKey), int(auth1R), p)) % p:
+                auth1PartialPublicKey = msgCode.split("||")[0]
+                auth1R = msgCode.split("||")[1]
+                if str((pow(g,int(auth1PartialPublicKey),p) * pow(int(auth1PartialPublicKey),int(auth1R),p)) % p) == auth1Secret:
                     auth1Count = 1
-                    connection.sendall(b'Valid')
+                    print("Authenticator 1 partial public key is valid!")
+                    ssl_con.sendall(b'Valid')
                 else:
-                    connection.sendall(b'Invalid')
+                    print("Error! Maybe someone else tried to send partial public key!")
+                    ssl_con.sendall(b'Invalid')
 
             elif client_address[0] == "127.0.0.3":
-                auth2Secret = msgCode.split("||")[0]
-                auth2PartialPrivateKey = msgCode.split("||")[1]
-                auth2R = msgCode.split("||")[2]
-                if (pow(g, int(auth2PartialPrivateKey), p) * pow(int(auth2PartialPrivateKey), int(auth2R), p)) % p:
+                auth2PartialPublicKey = msgCode.split("||")[0]
+                auth2R = msgCode.split("||")[1]
+                if str((pow(g,int(auth2PartialPublicKey),p) * pow(int(auth2PartialPublicKey),int(auth2R),p)) % p) == auth2Secret:
                     auth2Count = 1
-                    connection.sendall(b'Valid')
+                    print("Authenticator 2 partial public key is valid!")
+                    ssl_con.sendall(b'Valid')
                 else:
-                    connection.sendall(b'Invalid')
+                    print("Error! Maybe someone else tried to send partial public key!")
+                    ssl_con.sendall(b'Invalid')
         else:
             print("Invalid Connections!")
-    return auth1PartialPrivateKey, auth2PartialPrivateKey
+    return auth1PartialPublicKey, auth2PartialPublicKey
 
+def retrieveCommitmentValues(ssl_context, server):
+    auth1Count = 0
+    auth2Count = 0
+    auth1Secret = ""
+    auth2Secret = ""
+
+    print("Waiting for Authenticator to send Commitment value")
+    while auth1Count == 0 or auth2Count == 0:
+        ## Accept all incoming conections
+        connection, client_address = server.accept()
+        ssl_con = ssl_context.wrap_socket(connection, server_side=True)
+        ## Ensure that the connection to retrieve q is only this 2 IP address
+        if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
+            ssl_con.sendall(b'Connection is secure')
+            msgCode = ssl_con.recv(8192).decode("utf-8")
+            if client_address[0] == "127.0.0.2":
+                auth1Secret = msgCode
+                auth1Count += 1
+                print("Authenticator 1's commitment value recieved!")
+                ssl_con.sendall(b'Commitment Received')
+            elif client_address[0] == "127.0.0.3":
+                auth2Secret = msgCode
+                auth2Count += 1
+                print("Authenticator 2's commitment value recieved!")
+                ssl_con.sendall(b'Commitment Received')
+            else:
+                print("Error! Maybe someone else tried to send commitment value!")
+                ssl_con.sendall(b'Invalid')
+        else:
+            print("Invalid Connections!")
+
+    return auth1Secret,auth2Secret
 
 def sendParamsToAuthenticator(publicKeyParamBytes, connection, client_address):
     while True:
@@ -79,12 +116,11 @@ def sendParamsToAuthenticator(publicKeyParamBytes, connection, client_address):
             print("Authenticator 2 received Q!")
             break
         else:
-            connection.sendall(publicKeyParamBytes)
-
+            connection.send(publicKeyParamBytes)
 
 def syncConnectionToAuthenticator(publicKeyParamBytes):
     ## Create socket object and send public param q over
-    server = setupServer()
+    ssl_context, server = setupServer()
     auth1Count = 0
     auth2Count = 0
     connections = []
@@ -95,13 +131,13 @@ def syncConnectionToAuthenticator(publicKeyParamBytes):
     while auth1Count == 0 or auth2Count == 0:
         ## Accept all incoming conections
         connection, client_address = server.accept()
+        ssl_conn = ssl_context.wrap_socket(connection,server_side=True)
         ## Ensure that the connection to retrieve q is only this 2 IP address
         if client_address[0] == "127.0.0.2" or client_address[0] == "127.0.0.3":
-            thread = threading.Thread(target=sendParamsToAuthenticator,
-                                      args=(publicKeyParamBytes, connection, client_address))
+            thread = threading.Thread(target = sendParamsToAuthenticator, args=(publicKeyParamBytes, ssl_conn, client_address))
             threads.append(thread)
             thread.start()
-            connections.append(connection)
+            connections.append(ssl_conn)
             if client_address[0] == "127.0.0.2":
                 auth1Count = 1
             elif client_address[0] == "127.0.0.3":
@@ -118,12 +154,10 @@ def syncConnectionToAuthenticator(publicKeyParamBytes):
         con.send(b"Partial Private Key Generated Complete!")
     for thread in threads:
         thread.join()
-    server.close()
+    return ssl_context,server
 
-
-def socketSetupForPublic(publicKeyBytes, candidateNames, votingEnd, pParamBytes, gParamBytes):
-    ## Create socket object and send public key over
-    server = setupServer()
+def socketSetupForPublic(server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes):
+    ## Socket will keep releasing public information to voters who connect
     while True:
         try:
             print("Waiting for client to retrieve Public Information")
@@ -140,18 +174,31 @@ def socketSetupForPublic(publicKeyBytes, candidateNames, votingEnd, pParamBytes,
                 elif msgCode == "Requesting Public P":
                     connection.sendall(pParamBytes)
                 elif msgCode == "Requesting Public G":
-
                     connection.sendall(gParamBytes)
                 else:
                     connection.sendall(b"An error has occured!")
         except Exception as e:
             print("An error has occured: ", e)
 
+def receiveVotes(server, votingEnd):
+    ## Socket will keep receiving votes from voters who connect
+    global voters
+    global votes
+    while True:
+        ## Accept all incoming connections
+        connection, client_address = server.accept()
+        vote = connection.recv(1024).decode("utf-8")
+        if client_address not in voters:
+            ## NEED TO DO ZKP HERE!!!!!
+            voters.append(client_address)
+            votes[client_address] = vote
+        else:
+            connection.send(b'You have already voted. Results will be released at ' + votingEnd)
+
 
 def collateVotes():
     ## Decrypting and count all the votes
     print("Decrypt!")
-
 
 def generate_primes():
     p = 0
@@ -159,23 +206,21 @@ def generate_primes():
     q = number.getPrime(256)
 
     while not isPrime(p):
-        print(p.bit_length())
         while not p.bit_length() == 2048:
-            s = random.randrange(2 ** 1790, 2 ** 1791)
+            s = random.randrange(2**1790, 2**1791)
             p = 2 * q * s + 1
         s += 1
         p = 2 * q * s + 1
 
     return p, q
 
-
 def generate_g(p, q):
     g = 0
     ## Check if g is a generator of a finite group of prime order q
-    while not g > 1 or not pow(g, q, p):
-        h = number.getRandomRange(2, p - 2)
-        g = pow(h, (p - 1) // q, p)
-    return
+    while not g > 1 or not pow(g,q,p):
+        h = number.getRandomRange(2, p-2)
+        g = pow(h, (p-1)//q, p)
+    return g
 
 # partial decrypt function
 def partialDecrypt(a, privateKey, p):
@@ -216,15 +261,11 @@ def main():
     name = ""
     votingHours = ""
 
-    # this message is to determine which server/authenticator sent the Schnorr signature
-    message = "server"
-    messageInASCII = ''.join(str(ord(c)) for c in message)
-
     while num == "":
         num = input("Enter the number of candidates : ")
     for loop in range(int(num)):
         while name == "":
-            name = input("Enter the name of candidate " + str(loop + 1) + ":")
+            name = input("Enter the name of candidate " + str(loop+1) + ":" )
             candidates.append(name)
         name = ""
 
@@ -235,10 +276,10 @@ def main():
     candidateNames = str.encode(candidateNames)
 
     while votingHours == "":
-        votingHours = input("Enter the number of hours allowed to vote : ")
+        votingHours = input ("Enter the number of hours allowed to vote : ")
 
     ## Convert to hours and then to bytes
-    votingEndDate = datetime.datetime.now() + datetime.timedelta(hours=int(votingHours))
+    votingEndDate = datetime.datetime.now() + datetime.timedelta(hours = int(votingHours))
     votingEnd = str.encode(votingEndDate.strftime("%Y-%m-%d %H:%M:%S"))
 
     print("Initializing....Generating parameters")
@@ -250,36 +291,42 @@ def main():
     ## Convert q to bytes to be send over to Authenticator using Socket
     publicKeyParam = str(p) + "||" + str(q) + "||" + str(g) + "||"
     publicKeyParamBytes = str.encode(publicKeyParam)
-    syncConnectionToAuthenticator(publicKeyParamBytes)
+    ssl_context, server = syncConnectionToAuthenticator(publicKeyParamBytes)
+    print("Partial Public Key is generated on individual Authenticator")
 
     ## Convert p and g to bytes to be send over to client using Socket
     pParam = str(p)
     gParam = str(g)
     pParamBytes = str.encode(pParam)
     gParamBytes = str.encode(gParam)
-
-    ## Retrieve all the partial private keys from authenticators with commitment verified
-    partialPrivateKey1, partialPrivateKey2 = authenticatorPartialPrivateKey(g, p)
+    ## Retrieve the commitment values from Authenticators
+    auth1Commitment, auth2Commitment = retrieveCommitmentValues(ssl_context,server)
+    partialPublicKey1, partialPublicKey2 = authenticatorPartialPublicKey(ssl_context,server,auth1Commitment,auth2Commitment,g,p)
 
     ## Generate the partial private key
-    partialPrivateKey = number.getRandomRange(2, q - 2)
-    publicKey = pow(g, partialPrivateKey * int(partialPrivateKey1) * int(partialPrivateKey2), p)
+    #partialPrivateKey = number.getRandomRange(2, q-2)
+    #partialPublicKey3 = pow(g,partialPrivateKey,p)
+    #publicKey = pow(partialPublicKey3*int(partialPublicKey1)*int(partialPublicKey2), 1 , p)
+    #print("Public Key Generated!")
 
     ## Convert public key string and params to bytes to be send over using Socket
-    publicKeyBytes = str.encode(str(publicKey))
+    #publicKeyBytes = str.encode(str(publicKey))
 
     ## Server running in the background
-    server = threading.Thread(target=socketSetupForPublic,
-                              args=(publicKeyBytes, candidateNames, votingEnd, pParamBytes, gParamBytes))
-    server.start()
+    #server = setupServer()
+    #sendInfoToVoters = threading.Thread(target = socketSetupForPublic, args=(server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes))
+    #sendInfoToVoters.start()
+    #receiveServer = threading.Thread(target = receiveVotes, args=(server,votingEnd))
+    #receiveServer.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
-    timeDifference = votingEndDate - datetime.datetime.now()
-    timeDifferenceinSec = timeDifference.total_seconds()
-    time.sleep(timeDifferenceinSec)
-    server.stop()
-    collateVotes()
-
+    #timeDifference = votingEndDate - datetime.datetime.now()
+    #timeDifferenceinSec = timeDifference.total_seconds()
+    #time.sleep(timeDifferenceinSec)
+    #sendInfoToVoters.stop()
+    #receiveServer.stop()
+    #server.close()
+    #collateVotes()
 
 if __name__ == "__main__":
     main()
