@@ -1,7 +1,7 @@
 import threading
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes
-from Crypto.Util.number import isPrime
+from Cryptodome.Util.number import isPrime
 import datetime
 import socket
 import time
@@ -12,22 +12,28 @@ import os
 ## Pip install pycryptodomex
 
 server_address = ('127.0.0.1', 7777)
+receiveVote_address = ('127.0.0.1', 8888)
 currentPath = os.getcwd()
-votes = {}
+votes = []
 voters = []
 
 ## This function is for countdown to indicate when to decrypt and tabulate the data
 def error():
     print("Oops! Something gone wrong!")
 
-def setupServer():
+def setupServer(i):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     ssl_context.load_cert_chain(certfile="server.crt", keyfile="server.key")
 
-    server_socket.bind(server_address)
+    if i == 1:
+        server_socket.bind(server_address)
+
+    elif i == 2:
+        server_socket.bind(receiveVote_address)
+
     server_socket.listen()
     return ssl_context, server_socket
 
@@ -71,6 +77,7 @@ def authenticatorPartialPublicKey(ssl_context,server,auth1Secret,auth2Secret,g,p
                     ssl_con.sendall(b'Invalid')
         else:
             print("Invalid Connections!")
+    server.close()
     return auth1PartialPublicKey, auth2PartialPublicKey
 
 def retrieveCommitmentValues(ssl_context, server):
@@ -120,7 +127,7 @@ def sendParamsToAuthenticator(publicKeyParamBytes, connection, client_address):
 
 def syncConnectionToAuthenticator(publicKeyParamBytes):
     ## Create socket object and send public param q over
-    ssl_context, server = setupServer()
+    ssl_context, server = setupServer(1)
     auth1Count = 0
     auth2Count = 0
     connections = []
@@ -156,44 +163,62 @@ def syncConnectionToAuthenticator(publicKeyParamBytes):
         thread.join()
     return ssl_context,server
 
-def socketSetupForPublic(server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes):
+def socketSetupForPublic(ssl_context,server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes, qParamBytes):
     ## Socket will keep releasing public information to voters who connect
     while True:
         try:
             print("Waiting for client to retrieve Public Information")
             connection, client_address = server.accept()
+            ssl_conn = ssl_context.wrap_socket(connection,server_side=True)
             print("Connection From : ", client_address)
             while True:
-                msgCode = connection.recv(1024).decode("utf-8")
+                msgCode = ssl_conn.recv(1024).decode("utf-8")
                 if msgCode == "Requesting Voting Deadline":
-                    connection.sendall(votingEnd)
+                    ssl_conn.sendall(votingEnd)
                 elif msgCode == "Requesting Public Key":
-                    connection.sendall(publicKeyBytes)
+                    ssl_conn.sendall(publicKeyBytes)
                 elif msgCode == "Requesting Candidate Names":
-                    connection.sendall(candidateNames)
+                    ssl_conn.sendall(candidateNames)
                 elif msgCode == "Requesting Public P":
-                    connection.sendall(pParamBytes)
+                    ssl_conn.sendall(pParamBytes)
                 elif msgCode == "Requesting Public G":
-                    connection.sendall(gParamBytes)
+                    ssl_conn.sendall(gParamBytes)
+                elif msgCode == "Requesting Public Q":
+                    ssl_conn.sendall(qParamBytes)
                 else:
-                    connection.sendall(b"An error has occured!")
+                    ssl_conn.sendall(b"An error has occured!")
         except Exception as e:
             print("An error has occured: ", e)
 
-def receiveVotes(server, votingEnd):
+def receiveVotes(ssl_context,server,votingEnd,g,p):
     ## Socket will keep receiving votes from voters who connect
     global voters
     global votes
     while True:
+        print("Waiting for votes")
         ## Accept all incoming connections
         connection, client_address = server.accept()
-        vote = connection.recv(1024).decode("utf-8")
+        ssl_conn = ssl_context.wrap_socket(connection,server_side=True)
+        print("Connection From For Votes: ", client_address)
         if client_address not in voters:
-            ## NEED TO DO ZKP HERE!!!!!
-            voters.append(client_address)
-            votes[client_address] = vote
+            ssl_conn.sendall(b"Connection is secure")
+            votersCommitment = ssl_conn.recv(8192).decode("utf-8")
+            if votersCommitment:
+                ssl_conn.sendall(b"Commitment received!")
+                voters.append(client_address)
+                votersEncryptedVote = ssl_conn.recv(8192).decode("utf-8")
+            if votersCommitment and votersEncryptedVote:
+                commitmentValues = votersCommitment.split("***")
+                encryptedVotes = votersEncryptedVote.split("***")
+                for i in range (0,len(commitmentValues)-1):
+                    if commitmentValues[i].split("||")[0] == str(pow(g,int(encryptedVotes[i].split("||")[0]) + int(encryptedVotes[i].split("||")[1]),p) * pow(int(encryptedVotes[i].split("||")[0]) + int(encryptedVotes[i].split("||")[1]),int(commitmentValues[i].split("||")[1]),p) % p):
+                        ssl_conn.sendall(b'Vote is valid!')
+                        votes.append(votersEncryptedVote)
+                        break
+                    else:
+                        ssl_conn.sendall(b'Vote is tampered!')
         else:
-            connection.send(b'You have already voted. Results will be released at ' + votingEnd)
+            ssl_conn.send(b'You have already voted. Results will be released at ' + votingEnd)
 
 
 def collateVotes():
@@ -294,39 +319,43 @@ def main():
     ssl_context, server = syncConnectionToAuthenticator(publicKeyParamBytes)
     print("Partial Public Key is generated on individual Authenticator")
 
-    ## Convert p and g to bytes to be send over to client using Socket
-    pParam = str(p)
-    gParam = str(g)
-    pParamBytes = str.encode(pParam)
-    gParamBytes = str.encode(gParam)
     ## Retrieve the commitment values from Authenticators
     auth1Commitment, auth2Commitment = retrieveCommitmentValues(ssl_context,server)
     partialPublicKey1, partialPublicKey2 = authenticatorPartialPublicKey(ssl_context,server,auth1Commitment,auth2Commitment,g,p)
 
     ## Generate the partial private key
-    #partialPrivateKey = number.getRandomRange(2, q-2)
-    #partialPublicKey3 = pow(g,partialPrivateKey,p)
-    #publicKey = pow(partialPublicKey3*int(partialPublicKey1)*int(partialPublicKey2), 1 , p)
-    #print("Public Key Generated!")
+    partialPrivateKey = number.getRandomRange(2, q-2)
+    partialPublicKey3 = pow(g,partialPrivateKey,p)
+    publicKey = pow(partialPublicKey3*int(partialPublicKey1)*int(partialPublicKey2), 1 , p)
+    print("Public Key Generated!")
 
     ## Convert public key string and params to bytes to be send over using Socket
-    #publicKeyBytes = str.encode(str(publicKey))
+    publicKeyBytes = str.encode(str(publicKey))
 
+    ## Convert p and g to bytes to be send over to client using Socket
+    pParam = str(p)
+    gParam = str(g)
+    pParamBytes = str.encode(pParam)
+    gParamBytes = str.encode(gParam)
+    qParamBytes = str.encode(str(q))
     ## Server running in the background
-    #server = setupServer()
-    #sendInfoToVoters = threading.Thread(target = socketSetupForPublic, args=(server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes))
-    #sendInfoToVoters.start()
-    #receiveServer = threading.Thread(target = receiveVotes, args=(server,votingEnd))
-    #receiveServer.start()
+    ssl_context,server = setupServer(1)
+    sendInfoToVoters = threading.Thread(target = socketSetupForPublic, args=(ssl_context,server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes, qParamBytes))
+    sendInfoToVoters.start()
+
+    ssl_context1,receiveVote = setupServer(2)
+    receiveServer = threading.Thread(target = receiveVotes, args=(ssl_context1,receiveVote,votingEnd,int(gParam),int(pParam)))
+    receiveServer.start()
 
     ## Sleep until the time is up and server will shutdown and start to decrypt votes
-    #timeDifference = votingEndDate - datetime.datetime.now()
-    #timeDifferenceinSec = timeDifference.total_seconds()
-    #time.sleep(timeDifferenceinSec)
-    #sendInfoToVoters.stop()
-    #receiveServer.stop()
-    #server.close()
-    #collateVotes()
+    timeDifference = votingEndDate - datetime.datetime.now()
+    timeDifferenceinSec = timeDifference.total_seconds()
+    time.sleep(timeDifferenceinSec)
+    sendInfoToVoters.stop()
+    receiveServer.stop()
+    server.close()
+    collateVotes()
 
 if __name__ == "__main__":
     main()
+
