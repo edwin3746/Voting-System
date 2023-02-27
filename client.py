@@ -21,9 +21,14 @@ gParamBytes = ""
 qParamBytes = ""
 vote_str = ""
 publicKey = ""
+randomIP = number.getRandomRange(4,200)
+randomPort = number.getRandomRange(1, 65536)
 
 def startSocket(i):
+    client_address = ('127.0.0.'+str(randomIP), randomPort)
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(client_address)
 
     serverTLS = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
     serverTLS.load_verify_locations(cafile="server.crt")
@@ -95,7 +100,6 @@ def retrieveServerInformation(receiveInfo):
     while not qParamBytes:
         receiveInfo.send(b'Requesting Public Q')
         qParamBytes = receiveInfo.recv(2048).decode("utf-8")
-        print(qParamBytes)
         count += 1
         if count == 10:
             raise Exception()
@@ -150,8 +154,6 @@ def sendCommitment(secret,encryptedmessages):
             print("Invalid")
             exit
 
-
-
 def encrypt(message, p, g, public_key):
     k = number.getRandomRange(2, p-2)
     a = pow(g, k, p)
@@ -199,4 +201,5 @@ def process_vote():
 
 if __name__ == "__main__":
     main()
+
 
