@@ -7,6 +7,7 @@ from hashlib import sha256
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes, random
 from server import server_address as server_address
+from server import decryptVotes_address as decryptVotes_address
 
 ## Pip install pycryptodomex
 
@@ -40,7 +41,6 @@ def sendEncryptedPartialPublicKey(partialPublicKeyInfo,server):
     print("Sending Encrypted Partial Public Key to Server!")
     while True:
         if server.recv(1024).decode("utf-8") == "Connection is secure":
-            print("Waiting")
             server.sendall(partialPublicKeyInfo)
         if server.recv(1024).decode("utf-8") == "Valid":
             server.close()
@@ -56,7 +56,6 @@ def retrievePublicKeys(receivePubKeyInfo):
     p = ""
     q = ""
     g = ""
-    wait = "."
 
     while not pubKeyInfo or not p or not q or not g:
         receivePubKeyInfo.send(b'Retrieve public key parameters')
@@ -74,7 +73,6 @@ def retrievePublicKeys(receivePubKeyInfo):
     while True:
         if receivePubKeyInfo.recv(1024).decode("utf-8") == "Partial Private Key Generated Complete!":
             time.sleep(5)
-            receivePubKeyInfo.close()
             break
 
     ## Generate part of public key here (g^x mod p)
@@ -87,7 +85,59 @@ def retrievePublicKeys(receivePubKeyInfo):
     r = generate_r(q)
     secret = (pow(g,partialPublicKey,p) * pow(partialPublicKey, r, p)) % p
     print("Commitment for Partial Public Key Generated!")
-    return partialx,secret,partialPublicKey,r
+    return partialx,secret,partialPublicKey,r, p, q, g
+
+def sendSignature(privateKeySignature, server, privateKey, p):
+    connected = False
+    print("Voting in progress..")
+    while not connected:
+        try:
+            server.connect(decryptVotes_address)
+            print("Connected")
+            msgCode = server.recv(1024).decode("utf-8")
+            if msgCode == "Connection is secure":
+                server.send(privateKeySignature)
+                break
+        except ConnectionRefusedError:
+            time.sleep(2)
+
+    while True:
+        msgCode = server.recv(1024).decode("utf-8")
+        if msgCode == "Verification complete":
+            decryptEncryptedVotes(server, privateKey, p)
+
+def decryptEncryptedVotes(server, privateKey, p):
+    decryptedText = ""
+    encryptedVote = server.recv(8192).decode("utf-8")
+    splitEncryptedVote = encryptedVote.split("||")
+
+    print("Decrypting votes")
+    for i in range(0, len(splitEncryptedVote)-1):
+        decryptedText = decryptedText + str(partialDecrypt(int(splitEncryptedVote[i]), privateKey,p)) + "||"
+
+    print("Votes are decrypted.. Sending back to server")
+    sendDecryptedVotes(server, decryptedText)
+
+def sendDecryptedVotes(server, decryptedText):
+    decryptedText = str.encode(str(decryptedText))
+    server.send(decryptedText)
+    print("Completed!. Exiting the program in 5 seconds")
+    time.sleep(5)
+    exit()
+
+def retrieveEncrypedVote(server,privateKey,p,q):
+    encryptedVote = server.recv(8192).decode("utf-8")
+    partialDecryptedText = partialDecrypt(encryptedVote, privateKey,p)
+
+    ## Generate Commitment
+    r = generate_r(q)
+    secret = (pow(g,partialDecryptedText,p) * pow(partialDecryptedText, r, p)) % p
+
+def verifySchnorr(p, g, s, e, publicKey, message):
+    messageInASCII = ''.join(str(ord(c)) for c in message)
+    rv = pow(pow(g, s, p) * pow(publicKey, e, p), 1, p)
+    ev = hashThis(rv, messageInASCII) % p
+    return ev == e
 
 # partial decrypt function
 def partialDecrypt(a, privateKey, p):
@@ -95,11 +145,12 @@ def partialDecrypt(a, privateKey, p):
 
 # creating the Schnorr signature
 def schnorrSignature(p, q, g, privateKey, message):
+    messageInASCII = ''.join(str(ord(c)) for c in message)
     r = random.randint(1, q - 1)
     x = pow(g, r, p)
-    e = hashThis(x, message) % p
+    e = hashThis(x, messageInASCII) % p
     s = pow((r - (privateKey * e)), 1, p - 1)
-    return e, s
+    return str(e), str(s)
 
 # sample hash function
 def hashThis(r, message):
@@ -136,7 +187,7 @@ def main():
 
     while not secret or not partialPublicKey or not r or not privateKey:
         try:
-            privateKey, secret, partialPublicKey, r = retrievePublicKeys(auth1)
+            privateKey, secret, partialPublicKey, r, p, q, g = retrievePublicKeys(auth1)
         except:
             print("An error has occured")
             count += 1
@@ -156,8 +207,13 @@ def main():
     time.sleep(10)
     auth1 = startSocket()
     sendEncryptedPartialPublicKey(partialPublicKeyInfo,auth1)
-
     auth1.close()
+
+    auth1 = startSocket()
+    e,s = schnorrSignature(p, q, g, privateKey, 'Auth1')
+    privateKeySignature = e + "||" + s
+    privateKeySignature = str.encode(privateKeySignature)
+    sendSignature(privateKeySignature, auth1, privateKey, p)
 
 if __name__ == "__main__":
     main()
