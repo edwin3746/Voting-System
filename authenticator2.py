@@ -2,52 +2,27 @@ import socket
 import time
 import os
 import ssl
-from hashlib import sha256
+import jwt
 
+from hashlib import sha256
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes, random
 from server import server_address as server_address
 from server import decryptVotes_address as decryptVotes_address
 
 ## Pip install pycryptodomex
-
+## pip install pyJWT
 
 currentPath = os.getcwd()
+
+## Define params for JWT & generate token with payload and secret key
+params = {'username':'authenticator2'}
+token = jwt.encode(params, 'sEcUrEkEy', algorithm='HS256')
+token = str.encode(token)
 
 def generate_r(q):
     r = number.getRandomRange(2, q-2)
     return r
-
-def sendCommitment(commitmentValue,server):
-    count = 0
-    server.connect(server_address)
-
-    print("Sending Commitment to Server!")
-    ## Submit commitmentValue first
-    while True:
-        if server.recv(1024).decode("utf-8") == "Connection is secure":
-            server.sendall(commitmentValue)
-        if server.recv(1024).decode("utf-8") == "Commitment Received":
-            server.close()
-            break
-        count += 1
-        if count == 10:
-            raise Exception()
-
-def sendEncryptedPartialPublicKey(partialPublicKeyInfo,server):
-    count = 0
-    server.connect(server_address)
-
-    print("Sending Encrypted Partial Public Key to Server!")
-    while True:
-        if server.recv(1024).decode("utf-8") == "Connection is secure":
-            server.sendall(partialPublicKeyInfo)
-        if server.recv(1024).decode("utf-8") == "Valid":
-            server.close()
-            break
-        count += 1
-        if count == 10:
-            raise Exception()
 
 def retrievePublicKeys(receivePubKeyInfo):
     count = 0
@@ -56,6 +31,17 @@ def retrievePublicKeys(receivePubKeyInfo):
     p = ""
     q = ""
     g = ""
+    verified = False
+    ## Sending token to Server to verify itself
+    while not verified:
+        receivePubKeyInfo.send(token)
+        while True:
+            msgCode = receivePubKeyInfo.recv(1024).decode("utf-8")
+            if msgCode == "Valid user!":
+                verified = True
+                break
+            else:
+                raise Exception()
 
     while not pubKeyInfo or not p or not q or not g:
         receivePubKeyInfo.sendall(b'Retrieve public key parameters')
@@ -68,12 +54,11 @@ def retrievePublicKeys(receivePubKeyInfo):
         if count == 10:
             raise Exception()
     if p and q and g:
-        receivePubKeyInfo.sendall(b"Received Q!")
+        receivePubKeyInfo.sendall(b"Received Params!")
 
     while True:
         if receivePubKeyInfo.recv(1024).decode("utf-8") == "Partial Private Key Generated Complete!":
             time.sleep(10)
-            receivePubKeyInfo.close()
             break
 
     ## Generate part of public key here (g^x mod p)
@@ -88,12 +73,62 @@ def retrievePublicKeys(receivePubKeyInfo):
     print("Commitment for Partial Public Key Generated!")
     return partialx,secret,partialPublicKey,r, p, q, g
 
-def sendSignature(privateKeySignature, server, privateKey, p):
+def sendCommitment(commitmentValue,server):
+    global token
+    count = 0
+    server.connect(server_address)
+    verified = False
+
+    print("Sending Commitment to Server!")
+    ## Sending token to Server to verify itself
+    ## Submit commitmentValue first if verified
+    while not verified:
+        server.sendall(token)
+        while True:
+            msgCode = server.recv(1024).decode("utf-8")
+            if msgCode == "Connection is secure":
+                server.sendall(commitmentValue)
+            if msgCode == "Commitment Received":
+                server.close()
+                verified = True
+                break
+            count += 1
+            if count == 10:
+                raise Exception()
+
+
+def sendEncryptedPartialPublicKey(partialPublicKeyInfo,server):
+    global token
+    count = 0
+    server.connect(server_address)
+    verified = False
+
+    print("Sending Encrypted Partial Public Key to Server!")
+     ## Sending token to Server to verify itself
+    ## Submit partial Public Key if verified
+    while not verified:
+        server.send(token)
+        while True:
+            msgCode = server.recv(1024).decode("utf-8")
+            if msgCode == "Connection is secure":
+                server.sendall(partialPublicKeyInfo)
+            if msgCode == "Valid":
+                server.close()
+                verified = True
+                break
+            count += 1
+            if count == 10:
+                raise Exception()
+
+def sendSignature(privateKeySignature, server, privateKey, p, g):
+    global token
     connected = False
     print("Voting in progress..")
     while not connected:
         try:
             server.connect(decryptVotes_address)
+            print("Connected")
+            server.send(token)
             msgCode = server.recv(1024).decode("utf-8")
             if msgCode == "Connection is secure":
                 server.send(privateKeySignature)
@@ -103,9 +138,9 @@ def sendSignature(privateKeySignature, server, privateKey, p):
     while True:
         msgCode = server.recv(1024).decode("utf-8")
         if msgCode == "Verification complete":
-            decryptEncryptedVotes(server, privateKey, p)
+            decryptEncryptedVotes(server, privateKey, p, g)
 
-def decryptEncryptedVotes(server, privateKey, p):
+def decryptEncryptedVotes(server, privateKey, p, g):
     decryptedText = ""
     encryptedVote = server.recv(8192).decode("utf-8")
     splitEncryptedVote = encryptedVote.split("||")
@@ -122,6 +157,7 @@ def sendDecryptedVotes(server, decryptedText):
     server.send(decryptedText)
     print("Completed!. Exiting the program in 5 seconds")
     time.sleep(5)
+    server.close()
     exit()
 
 # partial decrypt function
@@ -193,8 +229,9 @@ def main():
 
     auth2 = startSocket()
     sendCommitment(secret,auth2)
-
+    auth2.close()
     time.sleep(15)
+
     auth2 = startSocket()
     sendEncryptedPartialPublicKey(partialPublicKeyInfo,auth2)
     auth2.close()
@@ -203,7 +240,7 @@ def main():
     e, s = schnorrSignature(p, q, g, privateKey, 'Auth2')
     privateKeySignature = e + "||" + s
     privateKeySignature = str.encode(privateKeySignature)
-    sendSignature(privateKeySignature, auth2, privateKey, p)
+    sendSignature(privateKeySignature, auth2, privateKey, p, g)
 
 if __name__ == "__main__":
     main()
