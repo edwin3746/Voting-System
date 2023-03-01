@@ -9,8 +9,7 @@ import time
 import os
 import ssl
 
-
-## Pip install tinyec
+## Pip install pycryptodomex
 
 votePage = Flask(__name__)
 currentPath = os.getcwd()
@@ -197,7 +196,6 @@ def process_vote():
     secret = str.encode(secret)
     sendCommitment(secret, encrypted_vote)
     return render_template("voteResult.html",  candidate_index=candidate_index, candidates=candidates, vote_str=vote_str)
-
 
 if __name__ == "__main__":
     main()
