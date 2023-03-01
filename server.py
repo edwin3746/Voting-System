@@ -20,7 +20,8 @@ receiveVote_address = ('127.0.0.1', 8888)
 decryptVotes_address = ('127.0.0.1', 9999)
 currentPath = os.getcwd()
 authConnection = []
-voters = []
+currentVoterCon = []
+votedCon = []
 decryptedText = []
 accumulatedVotes = {}
 
@@ -214,9 +215,34 @@ def authenticatorPartialPublicKey(ssl_context,server,auth1Secret,auth2Secret,g,p
     server.close()
     return auth1PartialPublicKey, auth2PartialPublicKey
 
+def sendParamsToVoters(votingEnd,publicKeyBytes,candidateNames,pParamBytes,gParamBytes,qParamBytes,ssl_conn,stopEvent,client_address):
+    try:
+        while True:
+            msgCode = ssl_conn.recv(1024).decode("utf-8")
+            if msgCode == "Requesting Voting Deadline":
+                ssl_conn.sendall(votingEnd)
+            elif msgCode == "Requesting Public Key":
+                ssl_conn.sendall(publicKeyBytes)
+            elif msgCode == "Requesting Candidate Names":
+                ssl_conn.sendall(candidateNames)
+            elif msgCode == "Requesting Public P":
+                ssl_conn.sendall(pParamBytes)
+            elif msgCode == "Requesting Public G":
+                ssl_conn.sendall(gParamBytes)
+            elif msgCode == "Requesting Public Q":
+                ssl_conn.sendall(qParamBytes)
+            else:
+                ssl_conn.sendall(b"An error has occured!")
+    except:
+        if not stopEvent.is_set():
+                print("Voter with IP: " + client_address[0] + " has retrieve the information!")
+        else:
+            return
+
 def socketSetupForPublic(ssl_context,server,publicKeyBytes,candidateNames,votingEnd, pParamBytes, gParamBytes, qParamBytes, stopEvent, votingEndDate):
     ## Socket will keep releasing public information to voters who connect
     # Change while True to while the time is not up yet
+    global currentVoterCon
     while not stopEvent.is_set() and datetime.datetime.now() < votingEndDate:
         try:
             print("Waiting for client to retrieve Public Information")
@@ -224,31 +250,49 @@ def socketSetupForPublic(ssl_context,server,publicKeyBytes,candidateNames,voting
                 connection, client_address = server.accept()
                 ssl_conn = ssl_context.wrap_socket(connection,server_side=True)
                 print("Connection From : ", client_address)
-                while True:
-                    msgCode = ssl_conn.recv(1024).decode("utf-8")
-                    if msgCode == "Requesting Voting Deadline":
-                        ssl_conn.sendall(votingEnd)
-                    elif msgCode == "Requesting Public Key":
-                        ssl_conn.sendall(publicKeyBytes)
-                    elif msgCode == "Requesting Candidate Names":
-                        ssl_conn.sendall(candidateNames)
-                    elif msgCode == "Requesting Public P":
-                        ssl_conn.sendall(pParamBytes)
-                    elif msgCode == "Requesting Public G":
-                        ssl_conn.sendall(gParamBytes)
-                    elif msgCode == "Requesting Public Q":
-                        ssl_conn.sendall(qParamBytes)
-                    else:
-                        ssl_conn.sendall(b"An error has occured!")
+                currentVoterCon.append(client_address)
+                thread = threading.Thread(target=sendParamsToVoters, args=(votingEnd,publicKeyBytes,candidateNames,pParamBytes,gParamBytes,qParamBytes,ssl_conn,stopEvent,client_address))
+                thread.start()
         except:
-            if not stopEvent.is_set():
-                print("Voter with IP: " + client_address[0] + " has retrieve the information!")
-            else:
-                return
+            return
+
+def receiveVotesFromVoters(ssl_conn,stopEvent,g,p,client_address):
+    global votedCon
+    try:
+        ssl_conn.sendall(b"Connection is secure")
+        votersCommitment = ssl_conn.recv(8192).decode("utf-8")
+        if votersCommitment:
+            ssl_conn.sendall(b"Commitment received!")
+            votersEncryptedVote = ssl_conn.recv(8192).decode("utf-8")
+        if votersCommitment and votersEncryptedVote:
+            commitmentValues = votersCommitment.split("***")
+            encryptedVotes = votersEncryptedVote.split("***")
+            for i in range (0,len(commitmentValues)-1):
+                if commitmentValues[i].split("||")[0] == str(pow(g,int(encryptedVotes[i].split("||")[0]) + int(encryptedVotes[i].split("||")[1]),p) * pow(int(encryptedVotes[i].split("||")[0]) + int(encryptedVotes[i].split("||")[1]),int(commitmentValues[i].split("||")[1]),p) % p):
+                    votedCon.append(client_address)
+                    ssl_conn.sendall(b'Vote is valid!')
+                    if accumulatedVotes:
+                        ## Assign the encrypted vote values into a dictionary
+                        ## Key of the dictionary will be the candidate number
+                        for g in range (0,len(commitmentValues)-1):
+                            oldVoteData = accumulatedVotes[g+1]
+                            oldVoteData.append(encryptedVotes[g])
+                            accumulatedVotes[g+1] = [encryptedVotes[g]]
+                    else:
+                        for g in range (0,len(commitmentValues)-1):
+                            accumulatedVotes[g+1] = [encryptedVotes[g]]
+                else:
+                    ssl_conn.sendall(b'Vote is tampered!')
+    except:
+        if not stopEvent.is_set():
+            print("A voter with IP: " + client_address[0] + " has submitted a vote!")
+        else:
+            return
 
 def receiveVotes(ssl_context,server,votingEnd,g,p, stopEvent, votingEndDate):
     ## Socket will keep receiving votes from voters who connect
-    global voters
+    global currentVoterCon
+    global votedCon
     # Change while True to while the time is not up yet
     while not stopEvent.is_set() and datetime.datetime.now() < votingEndDate:
         try:
@@ -257,40 +301,13 @@ def receiveVotes(ssl_context,server,votingEnd,g,p, stopEvent, votingEndDate):
             connection, client_address = server.accept()
             ssl_conn = ssl_context.wrap_socket(connection,server_side=True)
             print("Connection From For Votes: ", client_address)
-            if client_address not in voters:
-                ssl_conn.sendall(b"Connection is secure")
-                votersCommitment = ssl_conn.recv(8192).decode("utf-8")
-                if votersCommitment:
-                    ssl_conn.sendall(b"Commitment received!")
-                    voters.append(client_address)
-                    votersEncryptedVote = ssl_conn.recv(8192).decode("utf-8")
-                if votersCommitment and votersEncryptedVote:
-                    commitmentValues = votersCommitment.split("***")
-                    encryptedVotes = votersEncryptedVote.split("***")
-                    for i in range (0,len(commitmentValues)-1):
-                        if commitmentValues[i].split("||")[0] == str(pow(g,int(encryptedVotes[i].split("||")[0]) + int(encryptedVotes[i].split("||")[1]),p) * pow(int(encryptedVotes[i].split("||")[0]) + int(encryptedVotes[i].split("||")[1]),int(commitmentValues[i].split("||")[1]),p) % p):
-                            ssl_conn.sendall(b'Vote is valid!')
-                            if accumulatedVotes:
-                                ## Assign the encrypted vote values into a dictionary
-                                ## Key of the dictionary will be the candidate number
-                                for g in range (0,len(commitmentValues)-1):
-                                    oldVoteData = accumulatedVotes[g+1]
-                                    oldVoteData.append(encryptedVotes[g])
-                                    accumulatedVotes[g+1] = [encryptedVotes[g]]
-                            else:
-                                for g in range (0,len(commitmentValues)-1):
-                                    accumulatedVotes[g+1] = [encryptedVotes[g]]
-                                count += 1
-                                break
-                        else:
-                            ssl_conn.sendall(b'Vote is tampered!')
+            if (client_address in currentVoterCon) and (client_address not in votedCon):
+                thread = threading.Thread(target=receiveVotesFromVoters, args=(ssl_conn,stopEvent,g,p,client_address))
+                thread.start()
             else:
                 ssl_conn.send(b'You have already voted. Results will be released at ' + votingEnd)
         except:
-            if not stopEvent.is_set():
-                print("A voter with IP: " + client_address[0] + " has submitted a vote!")
-            else:
-                return
+            print("Voting Period is over!")
 
 def retrieveDecryptedVote(ssl_conn, encryptedAValue):
     global decryptedText
@@ -569,7 +586,7 @@ def main():
             a += 1
             b += 1
     else:
-        voteResult = 0
+        voteResult = "No one voted!"
     print("Voting Results!: ")
     print(voteResult)
     time.sleep(10000)
