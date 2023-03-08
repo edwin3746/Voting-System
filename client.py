@@ -41,7 +41,7 @@ def startSocket(i):
     return server
 
 def generate_r(q):
-    r = number.getRandomRange(2, q-2)
+    r = number.getRandomRange(1, q - 1)
     return r
 
 def retrieveServerInformation(receiveInfo):
@@ -148,15 +148,17 @@ def sendCommitment(secret,encryptedmessages):
         msgCode = server.recv(1024).decode("utf-8")
         if msgCode == "Vote is valid!":
             print("Thank you for your vote!")
+            server.close()
             break
         elif msgCode == "Vote is tampered!":
             print("Invalid")
+            server.close()
             exit
 
-def encrypt(message, p, g, public_key):
-    k = number.getRandomRange(2, p-2)
-    a = pow(g, k, p)
-    b = (message * pow(public_key, k, p)) % p
+def encrypt(message, p, g, q, public_key):
+    r = number.getRandomRange(1, q-1)
+    a = pow(g, r, p)
+    b = (pow(g,(message-48),p) * pow(public_key, r, p)) % p
     return a, b
 
 def main():
@@ -185,7 +187,7 @@ def process_vote():
 
     #call the encrypt function for each vote result in the vote list
     for vote in range(len(vote_list_bytes)):
-        a, b = encrypt(int.from_bytes(vote_list_bytes[vote], byteorder="big"), int(pParamBytes), int(gParamBytes), int(publicKey))
+        a, b = encrypt(int.from_bytes(vote_list_bytes[vote], byteorder="big"), int(pParamBytes), int(gParamBytes), int(qParamBytes),int(publicKey))
         encrypted_vote = encrypted_vote + str(a) + "||" + str(b) + "***"
 
         ## Generate Commitment for the server to validate that the votes are not tampered with
@@ -199,5 +201,4 @@ def process_vote():
 
 if __name__ == "__main__":
     main()
-
 
