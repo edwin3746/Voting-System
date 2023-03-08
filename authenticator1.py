@@ -65,7 +65,7 @@ def retrievePublicKeys(receivePubKeyInfo):
             break
 
     ## Generate part of public key here (g^x mod p)
-    partialx = number.getRandomRange(2,int(q)-2)
+    partialx = number.getRandomRange(1,int(q))
     print("Private Key Generated!")
     partialPublicKey = pow(g, partialx, p)
     print("Partial Public Key Generated!")
@@ -147,11 +147,9 @@ def decryptEncryptedVotes(server, privateKey, p, g):
     decryptedText = ""
     encryptedVote = server.recv(8192).decode("utf-8")
     splitEncryptedVote = encryptedVote.split("||")
-
     print("Decrypting votes")
     for i in range(0, len(splitEncryptedVote)-1):
         decryptedText = decryptedText + str(partialDecrypt(int(splitEncryptedVote[i]), privateKey,p)) + "||"
-
     print("Votes are decrypted.. Sending back to server")
     sendDecryptedVotes(server, decryptedText)
 
@@ -225,7 +223,6 @@ def main():
             print("Please restart the server")
             exit()
 
-
     partialPublicKeyInfo = str(partialPublicKey) + "||" + str(r)
     ## Convert the commitmentInfo into bytes and send to server
     partialPublicKeyInfo = str.encode(partialPublicKeyInfo)
@@ -244,11 +241,8 @@ def main():
     ## Generate ZKP signature to verify that it has private key
     e,s = schnorrSignature(p, q, g, privateKey, 'Auth1')
     privateKeySignature = e + "||" + s
-    privateKeySignature = str.encode(privateKeySignature)
+    privateKeySignature = str.encode(privateKeySignature + "||" + str(partialPublicKey))
     sendSignature(privateKeySignature, auth1, privateKey, p, g)
 
 if __name__ == "__main__":
     main()
-
-
-
