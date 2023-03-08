@@ -213,7 +213,7 @@ def authenticatorPartialPublicKey(ssl_context,server,auth1Secret,auth2Secret,g,p
         else:
             print("Invalid Connections!")
     server.close()
-    return auth1PartialPublicKey, auth2PartialPublicKey
+    return auth1PartialPublicKey, auth2PartialPublicKey, auth1R, auth2R
 
 def sendParamsToVoters(votingEnd,publicKeyBytes,candidateNames,pParamBytes,gParamBytes,qParamBytes,ssl_conn,stopEvent,client_address):
     try:
@@ -277,7 +277,7 @@ def receiveVotesFromVoters(ssl_conn,stopEvent,g,p,client_address):
                         for g in range (0,len(commitmentValues)-1):
                             oldVoteData = accumulatedVotes[g+1]
                             oldVoteData.append(encryptedVotes[g])
-                            accumulatedVotes[g+1] = [encryptedVotes[g]]
+                            accumulatedVotes[g+1] = oldVoteData
                     else:
                         for g in range (0,len(commitmentValues)-1):
                             accumulatedVotes[g+1] = [encryptedVotes[g]]
@@ -316,10 +316,9 @@ def retrieveDecryptedVote(ssl_conn, encryptedAValue):
         decryptedVote = ssl_conn.recv(8192).decode("utf-8")
         decryptedVote = decryptedVote + "***"
         decryptedText.append(decryptedVote)
-    print(decryptedText)
     return
 
-def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_address, partialPublicKey1, partialPublicKey2):
+def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_address, auth1Commitment, auth2Commitment, auth1R, auth2R):
     global auth1Signature
     global auth2Signature
 
@@ -327,28 +326,32 @@ def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_a
         ssl_conn.sendall(b"Connection is secure")
             ## Retrieve ZKP signature from authenticators
         signature = ssl_conn.recv(8192).decode("utf-8")
-            ## Retrieve individual value of ZKP for validating
+        authPublicKey = signature.split("||")[2]
+        ## Retrieve individual value of ZKP for validating
         e = int(signature.split("||")[0])
         s = int(signature.split("||")[1])
         if client_address[0] == "127.0.0.2":
-            if verifySchnorr(p,g,s,e,int(partialPublicKey1),'Auth1') == True:
-                print("Authenticator 1 have valid signature!")
-                ssl_conn.send(b"Verification complete")
-                auth1Signature = True
-                break
+            if (str((pow(g,int(authPublicKey),p) * pow(int(authPublicKey),int(auth1R),p)) % p) == auth1Commitment):
+                print("Authenticator 1 Partial Public Key is valid!")
+                if verifySchnorr(p,g,s,e,int(authPublicKey),'Auth1') == True:
+                    print("Authenticator 1 have valid signature!")
+                    ssl_conn.send(b"Verification complete")
+                    auth1Signature = True
+                    break
             else:
                 print("Invalid!")
         elif client_address[0] == "127.0.0.3":
-            if verifySchnorr(p,g,s,e,int(partialPublicKey2),'Auth2') == True:
-                print("Authenticator 2 have valid signature!")
-                ssl_conn.send(b"Verification complete")
-                auth2Signature = True
-                break
+            if (str((pow(g,int(authPublicKey),p) * pow(int(authPublicKey),int(auth2R),p)) % p) == auth2Commitment):
+                print("Authenticator 1 Partial Public Key is valid!")
+                if verifySchnorr(p,g,s,e,int(authPublicKey),'Auth2') == True:
+                    print("Authenticator 2 have valid signature!")
+                    ssl_conn.send(b"Verification complete")
+                    auth2Signature = True
+                    break
             else:
                 print("Invalid!")
 
-
-def decryptVote(ssl_context, verifyAuth, privateKeySignature, p, g, publicKey, accumulatedEncryptedAValue, partialPublicKey1, partialPublicKey2):
+def decryptVote(ssl_context, verifyAuth, privateKeySignature, p, g, publicKey, accumulatedEncryptedAValue, auth1Commitment, auth2Commitment, auth1R, auth2R):
     global auth1Signature
     global auth2Signature
     connections = []
@@ -365,7 +368,7 @@ def decryptVote(ssl_context, verifyAuth, privateKeySignature, p, g, publicKey, a
 
         ## Retrieve partial public key from Authenticators
         if authentication(authToken):
-            thread = threading.Thread(target = verifyAuthenticators, args=(ssl_conn, privateKeySignature, p, g, publicKey, client_address,partialPublicKey1, partialPublicKey2))
+            thread = threading.Thread(target = verifyAuthenticators, args=(ssl_conn, privateKeySignature, p, g, publicKey, client_address,auth1Commitment, auth2Commitment, auth1R, auth2R))
             thread.start()
             connections.append(ssl_conn)
         else:
@@ -410,10 +413,14 @@ def partialDecrypt(a, privateKey, p):
     return pow(a, p-1-privateKey, p)
 
 # full decrypt function, assuming 3 authenticators
-def fullDecrypt(partialDecrypted1, partialDecrypted2, partialDecrypted3, p, ciphertext):
+def fullDecrypt(partialDecrypted1, partialDecrypted2, partialDecrypted3, p, ciphertext,g):
     # can replace ciphertext with b if you want
     b = ciphertext
-    return pow(partialDecrypted1 * partialDecrypted2 * partialDecrypted3 * b, 1, p)
+    yM = (partialDecrypted1 * partialDecrypted2 * partialDecrypted3 * b) % p
+    for i in range(0,2**64):
+        if (pow(g,i,p)==yM):
+            return i
+            break
 
 # creating the Schnorr signature
 def schnorrSignature(p, q, g, privateKey, message):
@@ -447,10 +454,6 @@ def main():
     num = ""
     name = ""
     votingHours = ""
-    accumulatedEncryptedAValue = ""
-    accumulatedEncryptedBValue = ""
-    partialDecryptedVote = ""
-    voteResult = ""
 
     while True:
         num = input("Enter the number of candidates : ")
@@ -496,10 +499,10 @@ def main():
     ## Step 2: Retrieve the partial public key generated by Authenticators
     ## Retrieve the commitment values from Authenticators
     auth1Commitment, auth2Commitment = retrieveCommitmentValues(ssl_context,server)
-    partialPublicKey1, partialPublicKey2 = authenticatorPartialPublicKey(ssl_context,server,auth1Commitment,auth2Commitment,g,p)
+    partialPublicKey1, partialPublicKey2, auth1R, auth2R = authenticatorPartialPublicKey(ssl_context,server,auth1Commitment,auth2Commitment,g,p)
 
     ## Step 3: Generate the partial public key
-    partialPrivateKey = number.getRandomRange(2, q-2)
+    partialPrivateKey = number.getRandomRange(1, q)
     partialPublicKey3 = pow(g,partialPrivateKey,p)
 
     ## Step 4: Combine the partial public key together to obtain a public key
@@ -554,42 +557,65 @@ def main():
     ## Votes are stored in a dictionary. Key = Candidate, value = (A,B)
     ## Extract A and B respectively
     ## A is then send to Authenticators for decryption
+    accumulatedEncryptedAValue = ""
+    accumulatedEncryptedBValue = ""
+    partialDecryptedVote = ""
+    voteResult = ""
+    splitEncryptedVote = []
+    aValue = 1
+    bValue = 1
+    count = 0
+    ## If voters have casted their votes
     if accumulatedVotes:
+        ## Loop through the candidates and retrieve their (a,b) values and perform homographic addition before decrypting
         for key, encryptedVotes in accumulatedVotes.items():
-            encryptedAValue = accumulatedVotes[key][0].split('||')[0]
-            accumulatedEncryptedAValue = accumulatedEncryptedAValue + encryptedAValue + "||"
-            encryptedBValue = accumulatedVotes[key][0].split("||")[1]
-            accumulatedEncryptedBValue = accumulatedEncryptedBValue + encryptedBValue + "||"
+            for votes in accumulatedVotes[key]:
+                if count == 0:
+                    aValue = int(votes.split('||')[0])
+                    bValue = int(votes.split('||')[1])
+                else:
+                    ## Homographic addition (a1*a2)%p and (b1*b2)%p
+                    aValue = (aValue * int(votes.split('||')[0])) % p
+                    bValue = (bValue * int(votes.split('||')[1])) % p
+                count += 1
+            ## Contains the ciphertexts of different candidates
+            accumulatedEncryptedAValue = accumulatedEncryptedAValue + str(aValue) + "||"
+            accumulatedEncryptedBValue = accumulatedEncryptedBValue + str(bValue) + "||"
+            aValue = 1
+            bValue = 1
+            count = 0
         e, s = schnorrSignature(p, q, g, partialPrivateKey, 'Auth3')
 
         privateKeySignature = e + "||" + s
         privateKeySignature = str.encode(privateKeySignature)
-
         ## Set up socket to send A to authenticators
         try:
             ssl_context,verifyAuth = setupServer(3)
         except:
             print("Invalid Authentication")
 
-        encryptedAValue = accumulatedEncryptedAValue
-        accumulatedEncryptedAValue = str.encode(accumulatedEncryptedAValue)
-        decryptedVote = decryptVote(ssl_context,verifyAuth, privateKeySignature, p, g, publicKey, accumulatedEncryptedAValue, partialPublicKey1, partialPublicKey2)
-
-        splitEncryptedVote = encryptedAValue.split("||")
+        ## Convert ciphertext A and send to authenticators to perform partial decryption
+        accumulatedEncryptedAValueByte = str.encode(accumulatedEncryptedAValue)
+        ## partialPublicKey is parsed to verify that the authenticators have the valid private key using ZKP
+        decryptedVote = decryptVote(ssl_context,verifyAuth, privateKeySignature, p, g, publicKey, accumulatedEncryptedAValueByte, auth1Commitment, auth2Commitment, auth1R, auth2R)
+        ## Decrypt A value using server's partial private key
+        splitEncryptedVote = accumulatedEncryptedAValue.split("||")
         for i in range(0, len(splitEncryptedVote)-1):
             partialDecryptedVote = partialDecryptedVote + str(partialDecrypt(int(splitEncryptedVote[i]), partialPrivateKey, p)) + "||"
-
+        ## Decrypt to retrieve the results, Data parsed into fullDecrypt -> (partialDecryptAValue by Auth1, partialDecryptAValue by Auth2, partialDecryptAValue by Server, p, B value)
         a = 0
         b = int((len(decryptedVote.split("||"))-1) / 2)
         for j in range(0, len(splitEncryptedVote)-1):
-            voteResult = voteResult + str(fullDecrypt(int(decryptedVote.split("||")[a]), int(decryptedVote.split("||")[b]), int(partialDecryptedVote.split("||")[j]), p, int(accumulatedEncryptedBValue.split("||")[j]))-48) + "|"
+            voteResult = voteResult + str(fullDecrypt(int(decryptedVote.split("||")[a]), int(decryptedVote.split("||")[b]), int(partialDecryptedVote.split("||")[j]), p, int(accumulatedEncryptedBValue.split("||")[j]),g)) + "|"
             a += 1
             b += 1
     else:
         voteResult = "No one voted!"
+
     print("Voting Results!: ")
     print(voteResult)
-    time.sleep(10000)
+    time.sleep(1000)
+
 if __name__ == "__main__":
     main()
 
