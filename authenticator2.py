@@ -21,7 +21,7 @@ token = jwt.encode(params, 'sEcUrEkEy', algorithm='HS256')
 token = str.encode(token)
 
 def generate_r(q):
-    r = number.getRandomRange(2, q-2)
+    r = number.getRandomRange(1, q - 1)
     return r
 
 def retrievePublicKeys(receivePubKeyInfo):
@@ -62,7 +62,7 @@ def retrievePublicKeys(receivePubKeyInfo):
             break
 
     ## Generate part of public key here (g^x mod p)
-    partialx = number.getRandomRange(2,int(q)-2)
+    partialx = number.getRandomRange(1,int(q))
     print("Private Key Generated!")
     partialPublicKey = pow(g, partialx, p)
     print("Partial Public Key Generated!")
@@ -148,7 +148,6 @@ def decryptEncryptedVotes(server, privateKey, p, g):
     print("Decrypting votes")
     for i in range(0, len(splitEncryptedVote)-1):
         decryptedText = decryptedText + str(partialDecrypt(int(splitEncryptedVote[i]), privateKey,p)) + "||"
-
     print("Votes are decrypted.. Sending back to server")
     sendDecryptedVotes(server, decryptedText)
 
@@ -239,7 +238,7 @@ def main():
     auth2 = startSocket()
     e, s = schnorrSignature(p, q, g, privateKey, 'Auth2')
     privateKeySignature = e + "||" + s
-    privateKeySignature = str.encode(privateKeySignature)
+    privateKeySignature = str.encode(privateKeySignature + "||" + str(partialPublicKey))
     sendSignature(privateKeySignature, auth2, privateKey, p, g)
 
 if __name__ == "__main__":
