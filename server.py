@@ -39,6 +39,17 @@ def authentication(token):
             return False
     except:
         return False
+## Using JWT token to verify voters
+def authenticationVoters(token):
+    global SECRET_KEY
+    try:
+        verifyToken = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        if verifyToken['ID'] in range(1,10):
+            return True
+        else:
+            return False
+    except:
+        return False
 
 def error():
     print("Oops! Something gone wrong!")
@@ -114,11 +125,13 @@ def syncConnectionToAuthenticator(publicKeyParamBytes):
             else:
                 currentConnection.remove(client_address[0])
                 print("Invalid Connections!")
+                ssl_conn.sendall(b'Invalid')
 
             if auth1Count == 1 and auth2Count == 1:
                 break
         else:
             print("Invalid Connections!")
+            ssl_conn.sendall(b'Invalid')
 
     ## Notify the threads to stop
     stopSync.set()
@@ -212,30 +225,39 @@ def authenticatorPartialPublicKey(ssl_context,server,auth1Secret,auth2Secret,g,p
                     ssl_con.sendall(b'Invalid')
         else:
             print("Invalid Connections!")
+            ssl_con.sendall(b'Invalid')
     server.close()
     return auth1PartialPublicKey, auth2PartialPublicKey, auth1R, auth2R
 
 def sendParamsToVoters(votingEnd,publicKeyBytes,candidateNames,pParamBytes,gParamBytes,qParamBytes,ssl_conn,stopEvent,client_address):
     try:
         while True:
-            msgCode = ssl_conn.recv(1024).decode("utf-8")
-            if msgCode == "Requesting Voting Deadline":
-                ssl_conn.sendall(votingEnd)
-            elif msgCode == "Requesting Public Key":
-                ssl_conn.sendall(publicKeyBytes)
-            elif msgCode == "Requesting Candidate Names":
-                ssl_conn.sendall(candidateNames)
-            elif msgCode == "Requesting Public P":
-                ssl_conn.sendall(pParamBytes)
-            elif msgCode == "Requesting Public G":
-                ssl_conn.sendall(gParamBytes)
-            elif msgCode == "Requesting Public Q":
-                ssl_conn.sendall(qParamBytes)
+            ## Retrieve token from Voters
+            authToken = ssl_conn.recv(2048).decode("utf-8")
+            if authenticationVoters(authToken):
+                ssl_conn.sendall(b'Valid user!')
+                while True:
+                    msgCode = ssl_conn.recv(1024).decode("utf-8")
+                    if msgCode == "Requesting Voting Deadline":
+                        ssl_conn.sendall(votingEnd)
+                    elif msgCode == "Requesting Public Key":
+                        ssl_conn.sendall(publicKeyBytes)
+                    elif msgCode == "Requesting Candidate Names":
+                        ssl_conn.sendall(candidateNames)
+                    elif msgCode == "Requesting Public P":
+                        ssl_conn.sendall(pParamBytes)
+                    elif msgCode == "Requesting Public G":
+                        ssl_conn.sendall(gParamBytes)
+                    elif msgCode == "Requesting Public Q":
+                        ssl_conn.sendall(qParamBytes)
+                    else:
+                        ssl_conn.sendall(b"An error has occured!")
             else:
-                ssl_conn.sendall(b"An error has occured!")
+                ssl_conn.sendall(b'Invalid!')
+
     except:
         if not stopEvent.is_set():
-                print("Voter with IP: " + client_address[0] + " has retrieve the information!")
+            print("Voter with IP: " + client_address[0] + " has retrieve the information!")
         else:
             return
 
@@ -258,31 +280,28 @@ def socketSetupForPublic(ssl_context,server,publicKeyBytes,candidateNames,voting
 
 def receiveVotesFromVoters(ssl_conn,stopEvent,g,p,client_address):
     global votedCon
+    global accumulatedVotes
     try:
-        ssl_conn.sendall(b"Connection is secure")
-        votersCommitment = ssl_conn.recv(8192).decode("utf-8")
-        if votersCommitment:
-            ssl_conn.sendall(b"Commitment received!")
+        authToken = ssl_conn.recv(2048).decode("utf-8")
+        if authenticationVoters(authToken):
+            ssl_conn.sendall(b'Valid user!')
             votersEncryptedVote = ssl_conn.recv(8192).decode("utf-8")
-        if votersCommitment and votersEncryptedVote:
-            commitmentValues = votersCommitment.split("***")
             encryptedVotes = votersEncryptedVote.split("***")
-            for i in range (0,len(commitmentValues)-1):
-                if commitmentValues[i].split("||")[0] == str(pow(g,int(encryptedVotes[i].split("||")[0]) + int(encryptedVotes[i].split("||")[1]),p) * pow(int(encryptedVotes[i].split("||")[0]) + int(encryptedVotes[i].split("||")[1]),int(commitmentValues[i].split("||")[1]),p) % p):
-                    votedCon.append(client_address)
-                    ssl_conn.sendall(b'Vote is valid!')
-                    if accumulatedVotes:
-                        ## Assign the encrypted vote values into a dictionary
-                        ## Key of the dictionary will be the candidate number
-                        for g in range (0,len(commitmentValues)-1):
-                            oldVoteData = accumulatedVotes[g+1]
-                            oldVoteData.append(encryptedVotes[g])
-                            accumulatedVotes[g+1] = oldVoteData
-                    else:
-                        for g in range (0,len(commitmentValues)-1):
-                            accumulatedVotes[g+1] = [encryptedVotes[g]]
-                else:
-                    ssl_conn.sendall(b'Vote is tampered!')
+            votedCon.append(client_address)
+            if accumulatedVotes:
+                ## Assign the encrypted vote values into a dictionary
+                ## Key of the dictionary will be the candidate number
+                for g in range (0,len(encryptedVotes)-1):
+                    oldVoteData = accumulatedVotes[g+1]
+                    oldVoteData.append(encryptedVotes[g])
+                    accumulatedVotes[g+1] = oldVoteData
+            else:
+                for g in range (0,len(encryptedVotes)-1):
+                    accumulatedVotes[g+1] = [encryptedVotes[g]]
+            ssl_conn.sendall(b'Vote received!')
+            ssl_conn.close()
+        else:
+            ssl_conn.sendall(b'Invalid!')
     except:
         if not stopEvent.is_set():
             print("A voter with IP: " + client_address[0] + " has submitted a vote!")
@@ -302,6 +321,7 @@ def receiveVotes(ssl_context,server,votingEnd,g,p, stopEvent, votingEndDate):
             ssl_conn = ssl_context.wrap_socket(connection,server_side=True)
             print("Connection From For Votes: ", client_address)
             if (client_address in currentVoterCon) and (client_address not in votedCon):
+                ssl_conn.send(b'Receiving Vote')
                 thread = threading.Thread(target=receiveVotesFromVoters, args=(ssl_conn,stopEvent,g,p,client_address))
                 thread.start()
             else:
@@ -342,7 +362,7 @@ def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_a
                 print("Invalid!")
         elif client_address[0] == "127.0.0.3":
             if (str((pow(g,int(authPublicKey),p) * pow(int(authPublicKey),int(auth2R),p)) % p) == auth2Commitment):
-                print("Authenticator 1 Partial Public Key is valid!")
+                print("Authenticator 2 Partial Public Key is valid!")
                 if verifySchnorr(p,g,s,e,int(authPublicKey),'Auth2') == True:
                     print("Authenticator 2 have valid signature!")
                     ssl_conn.send(b"Verification complete")
@@ -417,9 +437,12 @@ def fullDecrypt(partialDecrypted1, partialDecrypted2, partialDecrypted3, p, ciph
     # can replace ciphertext with b if you want
     b = ciphertext
     yM = (partialDecrypted1 * partialDecrypted2 * partialDecrypted3 * b) % p
-    for i in range(0,2**64):
+    for i in range(0,2**8):
         if (pow(g,i,p)==yM):
-            return i
+            if i == 1 or i == 0:
+                return i
+            else:
+                return 0
             break
 
 # creating the Schnorr signature
@@ -618,5 +641,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
