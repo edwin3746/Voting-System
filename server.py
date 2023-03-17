@@ -268,13 +268,12 @@ def socketSetupForPublic(ssl_context,server,publicKeyBytes,candidateNames,voting
     while not stopEvent.is_set() and datetime.datetime.now() < votingEndDate:
         try:
             print("Waiting for client to retrieve Public Information")
-            if server.accept():
-                connection, client_address = server.accept()
-                ssl_conn = ssl_context.wrap_socket(connection,server_side=True)
-                print("Connection From : ", client_address)
-                currentVoterCon.append(client_address)
-                thread = threading.Thread(target=sendParamsToVoters, args=(votingEnd,publicKeyBytes,candidateNames,pParamBytes,gParamBytes,qParamBytes,ssl_conn,stopEvent,client_address))
-                thread.start()
+            connection, client_address = server.accept()
+            ssl_conn = ssl_context.wrap_socket(connection,server_side=True)
+            print("Connection From : ", client_address)
+            currentVoterCon.append(client_address)
+            thread = threading.Thread(target=sendParamsToVoters, args=(votingEnd,publicKeyBytes,candidateNames,pParamBytes,gParamBytes,qParamBytes,ssl_conn,stopEvent,client_address))
+            thread.start()
         except:
             return
 
@@ -437,12 +436,9 @@ def fullDecrypt(partialDecrypted1, partialDecrypted2, partialDecrypted3, p, ciph
     # can replace ciphertext with b if you want
     b = ciphertext
     yM = (partialDecrypted1 * partialDecrypted2 * partialDecrypted3 * b) % p
-    for i in range(0,2**8):
+    for i in range(0,2**64):
         if (pow(g,i,p)==yM):
-            if i == 1 or i == 0:
-                return i
-            else:
-                return 0
+            return i
             break
 
 # creating the Schnorr signature
@@ -641,6 +637,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
