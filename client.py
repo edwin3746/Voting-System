@@ -8,8 +8,10 @@ import socket
 import time
 import os
 import ssl
+import jwt
 
 ## Pip install pycryptodomex
+## pip install pyJWT
 
 votePage = Flask(__name__)
 currentPath = os.getcwd()
@@ -22,6 +24,14 @@ vote_str = ""
 publicKey = ""
 randomIP = number.getRandomRange(4,200)
 randomPort = number.getRandomRange(1, 65536)
+
+
+## Define params for JWT & generate token with payload and secret key to simulate the different voters
+## Assume that each voter will have a unique ID when register and server have a record of the unique ID
+randomID = number.getRandomRange(1,10)
+params = {'ID':randomID}
+token = jwt.encode(params, 'sEcUrEkEy', algorithm='HS256')
+token = str.encode(token)
 
 def startSocket(i):
     client_address = ('127.0.0.'+str(randomIP), randomPort)
@@ -52,6 +62,18 @@ def retrieveServerInformation(receiveInfo):
     global qParamBytes
     candidateNames = ""
     count = 0
+    verified = False
+
+    ## Sending token to server to verify
+    while not verified:
+        receiveInfo.send(token)
+        while True:
+            msgCode = receiveInfo.recv(1024).decode("utf-8")
+            if msgCode == "Valid user!":
+                verified = True
+                break
+            else:
+                raise Exception()
 
     while not publicKey:
         receiveInfo.send(b'Requesting Public Key')
@@ -110,50 +132,35 @@ def retrieveServerInformation(receiveInfo):
     receiveInfo.close()
     return pParamBytes, gParamBytes, qParamBytes, publicKey
 
-def sendVotes(encryptedmessages):
-    count = 0
-    while True:
-        msgCode = connection.recv(1024).decode("utf-8")
-        if msgCode == "Vote has been tampered":
-            print("Invalid")
-            break
-        elif "You have already voted" in msgCode:
-            print(msgCode)
-            break
-        elif "Vote is valid":
-            print("Thank you for your vote!")
-            break
-        server.send(encryptedVotes)
-        count += 1
-        if count == 10:
-            raise Exception()
-    server.close()
-
-def sendCommitment(secret,encryptedmessages):
+def sendVote(encryptedmessages):
     server = startSocket(2)
     count = 0
+    verified = False
 
-    while True:
-        if server.recv(1024).decode("utf-8") == "Connection is secure":
-            print("Secure")
-            server.sendall(secret)
-        if server.recv(1024).decode("utf-8") == "Commitment received!":
-            print("Sent")
-            server.sendall(encryptedmessages)
-            break
-        count += 1
-        if count == 10:
-            raise Exception()
-    while True:
-        msgCode = server.recv(1024).decode("utf-8")
-        if msgCode == "Vote is valid!":
-            print("Thank you for your vote!")
-            server.close()
-            break
-        elif msgCode == "Vote is tampered!":
-            print("Invalid")
-            server.close()
-            exit
+    msgCode = server.recv(1024).decode('utf-8')
+    if  msgCode == "Receiving Vote":
+        ## Sending token to server to verify
+        while not verified:
+            server.send(token)
+            while True:
+                msgCode = server.recv(1024).decode("utf-8")
+                if msgCode == "Valid user!":
+                    verified = True
+                    server.sendall(encryptedmessages)
+                    break
+                else:
+                    raise Exception()
+        while True:
+            msgCode = server.recv(1024).decode("utf-8")
+            if msgCode == "Vote received!":
+                print("Thank you for your vote!")
+                server.close()
+                break
+            else:
+                raise Exception()
+    else:
+        print(msgCode)
+        exit()
 
 def encrypt(message, p, g, q, public_key):
     r = number.getRandomRange(1, q-1)
@@ -190,13 +197,8 @@ def process_vote():
         a, b = encrypt(int.from_bytes(vote_list_bytes[vote], byteorder="big"), int(pParamBytes), int(gParamBytes), int(qParamBytes),int(publicKey))
         encrypted_vote = encrypted_vote + str(a) + "||" + str(b) + "***"
 
-        ## Generate Commitment for the server to validate that the votes are not tampered with
-        r = generate_r(int(qParamBytes))
-        secret = secret + str(pow(int(gParamBytes),(a+b),int(pParamBytes)) * pow((a+b), r, int(pParamBytes)) % int(pParamBytes)) + "||" + str(r) + "***"
-
     encrypted_vote = str.encode(encrypted_vote)
-    secret = str.encode(secret)
-    sendCommitment(secret, encrypted_vote)
+    sendVote(encrypted_vote)
     return render_template("voteResult.html",  candidate_index=candidate_index, candidates=candidates, vote_str=vote_str)
 
 if __name__ == "__main__":
