@@ -24,7 +24,6 @@ def generate_r(q):
     r = number.getRandomRange(2, q-2)
     return r
 
-
 def retrievePublicKeys(receivePubKeyInfo):
     global token
     count = 0
@@ -197,7 +196,7 @@ def startSocket():
     auth1TLS = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
     auth1TLS.load_verify_locations(cafile="server.crt")
 
-    auth1 = auth1TLS.wrap_socket(auth1Connection, server_hostname="greek")
+    auth1 = auth1TLS.wrap_socket(auth1Connection, server_hostname="GodVote")
 
     return auth1
 
