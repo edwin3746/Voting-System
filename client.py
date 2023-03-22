@@ -42,7 +42,7 @@ def startSocket(i):
     serverTLS = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
     serverTLS.load_verify_locations(cafile="server.crt")
 
-    server = serverTLS.wrap_socket(server, server_hostname="greek")
+    server = serverTLS.wrap_socket(server, server_hostname="GodVote")
 
     if i == 1:
         server.connect(server_address)
@@ -203,4 +203,3 @@ def process_vote():
 
 if __name__ == "__main__":
     main()
-
