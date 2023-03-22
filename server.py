@@ -2,6 +2,8 @@ import threading
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes
 from Cryptodome.Util.number import isPrime
+from cryptography.hazmat.primitives.asymmetric import dh
+from cryptography.hazmat.primitives import serialization
 import datetime
 import socket
 import time
@@ -60,8 +62,9 @@ def setupServer(i):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
     ssl_context.load_cert_chain(certfile="server.crt", keyfile="server.key")
+    ssl_context.set_ciphers("ECDHE-RSA-AES256-GCM-SHA384")
 
     if i == 1:
         server_socket.bind(server_address)
@@ -632,11 +635,14 @@ def main():
         voteResult = "No one voted!"
 
     print("Voting Results!: ")
-    print(voteResult)
+    voteOutput = voteResult.split('|')
+    for j in range(0,len(candidates)):
+        print(candidates[j] + " : " + voteOutput[j])
     time.sleep(1000)
 
 if __name__ == "__main__":
     main()
+
 
 
 
