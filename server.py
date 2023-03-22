@@ -2,8 +2,6 @@ import threading
 from Cryptodome.Util import number
 from Cryptodome.Random import get_random_bytes
 from Cryptodome.Util.number import isPrime
-from cryptography.hazmat.primitives.asymmetric import dh
-from cryptography.hazmat.primitives import serialization
 import datetime
 import socket
 import time
