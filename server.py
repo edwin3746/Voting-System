@@ -358,8 +358,10 @@ def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_a
                     ssl_conn.send(b"Verification complete")
                     auth1Signature = True
                     break
+                else:
+                    print("Invalid Schnorr!")
             else:
-                print("Invalid!")
+                print("Invalid Public Key!")
         elif client_address[0] == "127.0.0.3":
             if (str((pow(g,int(authPublicKey),p) * pow(int(authPublicKey),int(auth2R),p)) % p) == auth2Commitment):
                 print("Authenticator 2 Partial Public Key is valid!")
@@ -368,8 +370,10 @@ def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_a
                     ssl_conn.send(b"Verification complete")
                     auth2Signature = True
                     break
+                else:
+                    print("Invaild Schnorr!")
             else:
-                print("Invalid!")
+                print("Invalid Public Key!")
 
 def decryptVote(ssl_context, verifyAuth, privateKeySignature, p, g, publicKey, accumulatedEncryptedAValue, auth1Commitment, auth2Commitment, auth1R, auth2R):
     global auth1Signature
@@ -640,7 +644,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 
