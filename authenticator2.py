@@ -195,7 +195,7 @@ def startSocket():
     auth2TLS = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
     auth2TLS.load_verify_locations(cafile="server.crt")
 
-    auth2 = auth2TLS.wrap_socket(auth2Connection, server_hostname="greek")
+    auth2 = auth2TLS.wrap_socket(auth2Connection, server_hostname="GodVote")
 
     return auth2
 
