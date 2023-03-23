@@ -3,6 +3,8 @@ import time
 import os
 import ssl
 import jwt
+import pyminizip
+import pyautogui
 
 from hashlib import sha256
 from Cryptodome.Util import number
@@ -121,7 +123,7 @@ def sendEncryptedPartialPublicKey(partialPublicKeyInfo,server):
             if count == 10:
                 raise Exception()
 
-def sendSignature(privateKeySignature, server, privateKey, p, g):
+def sendSignature(privateKeySignature, server, privateKey, p, g, privateKeyFilename, encryptedZipFile):
     global token
     connected = False
     print("Voting in progress..")
@@ -140,9 +142,24 @@ def sendSignature(privateKeySignature, server, privateKey, p, g):
     while True:
         msgCode = server.recv(1024).decode("utf-8")
         if msgCode == "Verification complete":
-            decryptEncryptedVotes(server, privateKey, p, g)
+            decryptEncryptedVotes(server, privateKey, p, g, privateKeyFilename, encryptedZipFile)
 
-def decryptEncryptedVotes(server, privateKey, p, g):
+def decryptEncryptedVotes(server, privateKey, p, g, privateKeyFilename, encryptedZipFile):
+
+    # unlocking the password protected zip file
+    for i in range(3):
+        passwordAttempt = pyautogui.password(text='Enter password', title='Authenticator 1', default='', mask='*')
+        try:
+            pyminizip.uncompress(encryptedZipFile, passwordAttempt, "", 0)
+            with open(privateKeyFilename) as file:
+                privateKey = int(file.read())
+            break
+        except:
+            print(f"Wrong password, you have {3 - i - 1} tries left")
+
+    else:
+        print("Max tries reached, quitting program.")
+
     decryptedText = ""
     encryptedVote = server.recv(8192).decode("utf-8")
     splitEncryptedVote = encryptedVote.split("||")
@@ -208,6 +225,10 @@ def main():
     privateKey = ""
     count = 0
 
+    # password encrypted zip file
+    privateKeyFilename = "secret_key_auth1.txt"
+    encryptedZipFile = "password_protected_auth1.zip"
+
     # this message is to determine which server/authenticator sent the Schnorr signature
     message = "auth1"
     messageInASCII = ''.join(str(ord(c)) for c in message)
@@ -227,6 +248,13 @@ def main():
     partialPublicKeyInfo = str.encode(partialPublicKeyInfo)
     secret = str.encode(str(secret))
 
+    # user will enter a password
+    userPassword = pyautogui.password(text='Enter password', title='Authenticator 1', default='', mask='*')
+    with open(privateKeyFilename, 'w') as file:
+        file.write(str(privateKey))
+    pyminizip.compress(privateKeyFilename, None, encryptedZipFile, userPassword, 5)
+    userPassword = ""
+
     auth1 = startSocket()
     sendCommitment(secret,auth1)
     auth1.close()
@@ -241,7 +269,7 @@ def main():
     e,s = schnorrSignature(p, q, g, privateKey, 'Auth1')
     privateKeySignature = e + "||" + s
     privateKeySignature = str.encode(privateKeySignature + "||" + str(partialPublicKey))
-    sendSignature(privateKeySignature, auth1, privateKey, p, g)
+    sendSignature(privateKeySignature, auth1, privateKey, p, g, privateKeyFilename, encryptedZipFile)
 
 if __name__ == "__main__":
     main()
