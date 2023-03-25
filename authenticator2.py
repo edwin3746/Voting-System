@@ -122,7 +122,7 @@ def sendEncryptedPartialPublicKey(partialPublicKeyInfo,server):
             if count == 10:
                 raise Exception()
 
-def sendSignature(privateKeySignature, server, privateKey, p, g, privateKeyFilename, encryptedZipFile):
+def sendSignature(server, p, q, g, partialPublicKey, privateKeyFilename, encryptedZipFile):
     global token
     connected = False
     print("Voting in progress..")
@@ -133,6 +133,26 @@ def sendSignature(privateKeySignature, server, privateKey, p, g, privateKeyFilen
             server.send(token)
             msgCode = server.recv(1024).decode("utf-8")
             if msgCode == "Connection is secure":
+
+                # retrieve private key from encrypted zip file
+                # unlocking the password protected zip file
+                for i in range(3):
+                    passwordAttempt = pyautogui.password(text='Enter password', title='Authenticator 2', default='',
+                                                         mask='*')
+                    try:
+                        pyminizip.uncompress(encryptedZipFile, passwordAttempt, "", 0)
+                        with open(privateKeyFilename) as file:
+                            privateKey = int(file.read())
+                        break
+                    except:
+                        print(f"Wrong password, you have {3 - i - 1} tries left")
+
+                else:
+                    print("Max tries reached, quitting program.")
+                # generate signature with private key
+                e, s = schnorrSignature(p, q, g, privateKey, "Auth2")
+                privateKeySignature = e + "||" + s
+                privateKeySignature = str.encode(privateKeySignature + "||" + str(partialPublicKey))
                 server.send(privateKeySignature)
                 break
         except ConnectionRefusedError:
@@ -140,24 +160,9 @@ def sendSignature(privateKeySignature, server, privateKey, p, g, privateKeyFilen
     while True:
         msgCode = server.recv(1024).decode("utf-8")
         if msgCode == "Verification complete":
-            decryptEncryptedVotes(server, privateKey, p, g, privateKeyFilename, encryptedZipFile)
+            decryptEncryptedVotes(server, privateKey, p, g)
 
-def decryptEncryptedVotes(server, privateKey, p, g, privateKeyFilename, encryptedZipFile):
-
-    # unlocking the password protected zip file
-    for i in range(3):
-        passwordAttempt = pyautogui.password(text='Enter password', title='Authenticator 2', default='', mask='*')
-        try:
-            pyminizip.uncompress(encryptedZipFile, passwordAttempt, "", 0)
-            with open(privateKeyFilename) as file:
-                privateKey = int(file.read())
-            break
-        except:
-            print(f"Wrong password, you have {3 - i - 1} tries left")
-
-    else:
-        print("Max tries reached, quitting program.")
-
+def decryptEncryptedVotes(server, privateKey, p, g):
     decryptedText = ""
     encryptedVote = server.recv(8192).decode("utf-8")
     splitEncryptedVote = encryptedVote.split("||")
@@ -182,17 +187,17 @@ def partialDecrypt(a, privateKey, p):
 
 # creating the Schnorr signature
 def schnorrSignature(p, q, g, privateKey, message):
-    messageInASCII = ''.join(str(ord(c)) for c in message)
+    message = ''.join(str(ord(c)) for c in message)
     r = random.randint(1, q - 1)
     x = pow(g, r, p)
-    e = hashThis(x, messageInASCII) % p
+    e = hashThis(x, message) % p
     s = pow((r - (privateKey * e)), 1, p - 1)
     return str(e), str(s)
 
 def verifySchnorr(p, g, s, e, publicKey, message):
-    messageInASCII = ''.join(str(ord(c)) for c in message)
+    message = ''.join(str(ord(c)) for c in message)
     rv = pow(pow(g, s, p) * pow(publicKey, e, p), 1, p)
-    ev = hashThis(rv, messageInASCII) % p
+    ev = hashThis(rv, message) % p
     return ev == e
 
 # sample hash function
@@ -263,11 +268,9 @@ def main():
     sendEncryptedPartialPublicKey(partialPublicKeyInfo,auth2)
     auth2.close()
 
+    ## Generate and send ZKP signature to verify that it has private key
     auth2 = startSocket()
-    e, s = schnorrSignature(p, q, g, privateKey, 'Auth2')
-    privateKeySignature = e + "||" + s
-    privateKeySignature = str.encode(privateKeySignature + "||" + str(partialPublicKey))
-    sendSignature(privateKeySignature, auth2, privateKey, p, g, privateKeyFilename, encryptedZipFile)
+    sendSignature(auth2, p, q, g, partialPublicKey, privateKeyFilename, encryptedZipFile)
 
 if __name__ == "__main__":
     main()
