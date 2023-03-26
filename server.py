@@ -9,6 +9,7 @@ import random
 import ssl
 import os
 import jwt
+import struct
 from hashlib import sha256
 
 ## Pip install pycryptodomex
@@ -351,6 +352,10 @@ def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_a
         e = int(signature.split("||")[0])
         s = int(signature.split("||")[1])
         if client_address[0] == "127.0.0.2":
+            print("------- Authenticator 1 Schnorr signature -------")
+            print("Value of Authenticator 1's e : " + str(e))
+            print("Value of Authenticator 1's s : " + str(s))
+            print("------- End of Authenticator 1 Schnorr signature -------")
             if (str((pow(g,int(authPublicKey),p) * pow(int(authPublicKey),int(auth1R),p)) % p) == auth1Commitment):
                 print("Authenticator 1 Partial Public Key is valid!")
                 if verifySchnorr(p,g,s,e,int(authPublicKey),'Auth1') == True:
@@ -359,10 +364,14 @@ def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_a
                     auth1Signature = True
                     break
                 else:
-                    print("Invalid Schnorr!")
+                    print("Invalid Schnorr from Authenticator 1!")
             else:
                 print("Invalid Public Key!")
         elif client_address[0] == "127.0.0.3":
+            print("------- Authenticator 2 Schnorr signature -------")
+            print("Value of Authenticator 2's e : " + str(e))
+            print("Value of Authenticator 2's s : " + str(s))
+            print("------- End of Authenticator 2 Schnorr signature -------")
             if (str((pow(g,int(authPublicKey),p) * pow(int(authPublicKey),int(auth2R),p)) % p) == auth2Commitment):
                 print("Authenticator 2 Partial Public Key is valid!")
                 if verifySchnorr(p,g,s,e,int(authPublicKey),'Auth2') == True:
@@ -371,7 +380,7 @@ def verifyAuthenticators(ssl_conn,privateKeySignature, p, g, publicKey, client_a
                     auth2Signature = True
                     break
                 else:
-                    print("Invaild Schnorr!")
+                    print("Invaild Schnorr from Authenticator 2!")
             else:
                 print("Invalid Public Key!")
 
@@ -447,26 +456,33 @@ def fullDecrypt(partialDecrypted1, partialDecrypted2, partialDecrypted3, p, ciph
             break
 
 # creating the Schnorr signature
-def schnorrSignature(p, q, g, privateKey, message):
-    messageInASCII = ''.join(str(ord(c)) for c in message)
+def schnorrSignature(p, q, g, publicKey, privateKey, message):
+    message = ''.join(str(ord(c)) for c in message)
     r = random.randint(1, q - 1)
     x = pow(g, r, p)
-    e = hashThis(x, messageInASCII) % p
+    e = hashThis(x, publicKey, message) % p
     s = pow((r - (privateKey * e)), 1, p - 1)
     return str(e), str(s)
 
 # sample hash function
-def hashThis(r, message):
-    hash=sha256();
-    hash.update(str(r).encode());
-    hash.update(message.encode());
+def hashThis(r, publicKey, message):
+    hash=sha256()
+    hash.update(str(r).encode())
+    hash.update(struct.pack("I", len(str(publicKey))))
+    hash.update(str(publicKey).encode())
+    hash.update(struct.pack("I", len(message)))
+    hash.update(message.encode())
     return int(hash.hexdigest(),16)
 
 # verification of Schnorr signature
 def verifySchnorr(p, g, s, e, publicKey, message):
     messageInASCII = ''.join(str(ord(c)) for c in message)
-    rv = pow(pow(g, s, p) * pow(publicKey, e, p), 1, p)
-    ev = hashThis(rv, messageInASCII) % p
+    xv = pow(pow(g, s, p) * pow(publicKey, e, p), 1, p)
+    ev = hashThis(xv, publicKey, messageInASCII) % p
+    print("------- Verification of Schnorr signature -------")
+    print("Value of received e   : " + str(e))
+    print("Value of generated ev : " + str(ev))
+    print("------- End of verification of Schnorr signature -------")
     return str(ev) == str(e)
 
 def main():
@@ -636,7 +652,7 @@ def main():
         print("Value of accumulated ciphertext b : " + str(accumulatedEncryptedBValue))
         print("------- End of Encrypted Ciphertext values -------")
 
-        e, s = schnorrSignature(p, q, g, partialPrivateKey, 'Auth3')
+        e, s = schnorrSignature(p, q, g, partialPublicKey3, partialPrivateKey, 'Auth3')
 
         privateKeySignature = e + "||" + s
         privateKeySignature = str.encode(privateKeySignature)

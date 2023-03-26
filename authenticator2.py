@@ -5,6 +5,7 @@ import ssl
 import jwt
 import pyminizip
 import pyautogui
+import struct
 
 from hashlib import sha256
 from Cryptodome.Util import number
@@ -56,6 +57,11 @@ def retrievePublicKeys(receivePubKeyInfo):
         if count == 10:
             raise Exception()
     if p and q and g:
+        print("------- Parameters Received -------")
+        print("Value of p : " + str(p))
+        print("Value of q : " + str(q))
+        print("Value of g : " + str(g))
+        print("------- End of Parameters -------")
         receivePubKeyInfo.sendall(b"Received Params!")
 
     while True:
@@ -69,10 +75,19 @@ def retrievePublicKeys(receivePubKeyInfo):
     partialPublicKey = pow(g, partialx, p)
     print("Partial Public Key Generated!")
 
+    print("------- Authenticator 2 Partial Key Pair Values -------")
+    print("Value of Authenticator 2's Partial Public Key : " + str(partialPublicKey))
+    print("Value of Authenticator 2's Partial Private Key : " + str(partialx))
     ## Commitment
     r = generate_r(q)
+    print("Value of Authenticator 2 Random R : " + str(r))
+    print("------- End of Partial Key Pair Values -------")
+
     secret = (pow(g,partialPublicKey,p) * pow(partialPublicKey, r, p)) % p
     print("Commitment for Partial Public Key Generated!")
+    print("------- Commitment Values -------")
+    print("Value of Authenticator 2 Commitment : " + str(secret))
+    print("------- End of Commitment Values -------")
     return partialx,secret,partialPublicKey,r, p, q, g
 
 def sendCommitment(commitmentValue,server):
@@ -150,7 +165,11 @@ def sendSignature(server, p, q, g, partialPublicKey, privateKeyFilename, encrypt
                 else:
                     print("Max tries reached, quitting program.")
                 # generate signature with private key
-                e, s = schnorrSignature(p, q, g, privateKey, "Auth2")
+                e, s = schnorrSignature(p, q, g, partialPublicKey, privateKey, "Auth2")
+                print("------- Authenticator 2 Schnorr signature -------")
+                print("Value of Authenticator 2's e : " + str(e))
+                print("Value of Authenticator 2's s : " + str(s))
+                print("------- End of Authenticator 2 Schnorr signature -------")
                 privateKeySignature = e + "||" + s
                 privateKeySignature = str.encode(privateKeySignature + "||" + str(partialPublicKey))
                 server.send(privateKeySignature)
@@ -170,6 +189,9 @@ def decryptEncryptedVotes(server, privateKey, p, g):
     print("Decrypting votes")
     for i in range(0, len(splitEncryptedVote)-1):
         decryptedText = decryptedText + str(partialDecrypt(int(splitEncryptedVote[i]), privateKey,p)) + "||"
+    print("------- Partially Decrypted a (Authenticator 2) -------")
+    print("Value of partially decrypted a value by Authenticator 2 : " + str(decryptedText))
+    print("------- End of Partially Decrypted a (Authenticator 2) -------")
     print("Votes are decrypted.. Sending back to server")
     sendDecryptedVotes(server, decryptedText)
 
@@ -186,25 +208,28 @@ def partialDecrypt(a, privateKey, p):
     return pow(a, p-1-privateKey, p)
 
 # creating the Schnorr signature
-def schnorrSignature(p, q, g, privateKey, message):
+def schnorrSignature(p, q, g, publicKey, privateKey, message):
     message = ''.join(str(ord(c)) for c in message)
     r = random.randint(1, q - 1)
     x = pow(g, r, p)
-    e = hashThis(x, message) % p
+    e = hashThis(x, publicKey, message) % p
     s = pow((r - (privateKey * e)), 1, p - 1)
     return str(e), str(s)
 
 def verifySchnorr(p, g, s, e, publicKey, message):
     message = ''.join(str(ord(c)) for c in message)
-    rv = pow(pow(g, s, p) * pow(publicKey, e, p), 1, p)
-    ev = hashThis(rv, message) % p
+    xv = pow(pow(g, s, p) * pow(publicKey, e, p), 1, p)
+    ev = hashThis(xv, publicKey, message) % p
     return ev == e
 
 # sample hash function
-def hashThis(r, message):
-    hash=sha256();
-    hash.update(str(r).encode());
-    hash.update(message.encode());
+def hashThis(r, publicKey, message):
+    hash=sha256()
+    hash.update(str(r).encode())
+    hash.update(struct.pack("I", len(str(publicKey))))
+    hash.update(str(publicKey).encode())
+    hash.update(struct.pack("I", len(message)))
+    hash.update(message.encode())
     return int(hash.hexdigest(),16)
 
 def startSocket():
@@ -232,10 +257,6 @@ def main():
     # password encrypted zip file
     privateKeyFilename = "secret_key_auth2.txt"
     encryptedZipFile = "password_protected_auth2.zip"
-
-    # this message is to determine which server/authenticator sent the Schnorr signature
-    message = "auth2"
-    messageInASCII = ''.join(str(ord(c)) for c in message)
 
     while not secret or not partialPublicKey or not r or not privateKey:
         try:
