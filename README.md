@@ -1,4 +1,4 @@
-# Voting-System
+# God's Vote
 
 PEM Pass: securepassword
 
