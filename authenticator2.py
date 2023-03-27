@@ -279,6 +279,7 @@ def main():
         file.write(str(privateKey))
     pyminizip.compress(privateKeyFilename, None, encryptedZipFile, userPassword, 5)
     userPassword = ""
+    os.remove(privateKeyFilename)
 
     auth2 = startSocket()
     sendCommitment(secret,auth2)
