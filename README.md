@@ -11,6 +11,7 @@ Next, run the command console and run the following 3 commands
 2. ‘pip install pyJWT’
 3. ‘pip install pyminizip’
 4. ‘pip install pyautogui’
+
 These four modules are required in order to run the program.
 To run the program, first double click on server.py and you will be prompted with the following, enter the information as required as shown in the screenshot below.
 
