@@ -152,7 +152,7 @@ def sendSignature(server, p, q, g, partialPublicKey, privateKeyFilename, encrypt
                 # retrieve private key from encrypted zip file
                 # unlocking the password protected zip file
                 for i in range(3):
-                    passwordAttempt = pyautogui.password(text='Enter password', title='Authenticator 2', default='',
+                    passwordAttempt = pyautogui.password(text='Enter password for decryption', title='Authenticator 2', default='',
                                                          mask='*')
                     try:
                         pyminizip.uncompress(encryptedZipFile, passwordAttempt, "", 0)
@@ -274,7 +274,7 @@ def main():
     secret = str.encode(str(secret))
 
     # user will enter a password
-    userPassword = pyautogui.password(text='Enter password', title='Authenticator 2', default='', mask='*')
+    userPassword = pyautogui.password(text='Enter password for encryption', title='Authenticator 2', default='', mask='*')
     with open(privateKeyFilename, 'w') as file:
         file.write(str(privateKey))
     pyminizip.compress(privateKeyFilename, None, encryptedZipFile, userPassword, 5)
