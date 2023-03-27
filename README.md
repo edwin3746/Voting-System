@@ -14,12 +14,12 @@ Next, run the command console and run the following 3 commands
 These four modules are required in order to run the program.
 To run the program, first double click on server.py and you will be prompted with the following, enter the information as required as shown in the screenshot below.
 
-<img width="393" alt="image" src="https://user-images.githubusercontent.com/64019173/227908578-f441e74b-f5d6-4ad2-9702-7cd843213bc1.png">
+<img width="auto" alt="image" src="https://user-images.githubusercontent.com/64019173/227908578-f441e74b-f5d6-4ad2-9702-7cd843213bc1.png">
 
 After entering the essential information, server.py will generate the parameters required and you will be prompted to enter the PEM pass phrase. The PEM pass phrase is as follows: ’securepassword’ (Do note that the characters entered will not be shown).
 After entering the PEM pass phrase, a prompt will show as the screenshot below.
 
-<img width="400" alt="image" src="https://user-images.githubusercontent.com/64019173/227908880-15c38aa0-8d76-4375-9e29-5a873b1b329c.png">
+<img width="auto" alt="image" src="https://user-images.githubusercontent.com/64019173/227908880-15c38aa0-8d76-4375-9e29-5a873b1b329c.png">
 
 Next, run either ‘authenticator1.py’ or ‘authenticator2.py’ in sequential order. After running either of the script, the output will be as shown below indicating that Authenticator has received public parameters required. The second window is the output after running ‘Authenticator2.py’. Both scripts will return the same output.
 
