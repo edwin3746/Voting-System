@@ -7,10 +7,10 @@ PEM Pass: securepassword
 
 Firstly, download all the required files from github https://github.com/edwin3746/Zero-Knowledge-Voting-System. The code is written in Python, the recommended Python version to be installed on the computer will be 3.9.7. Ensure that Python is added to path variables before running the code. Ensure that the computer has Microsoft Visual C++ 14.0 or greater.
 Next, run the command console and run the following 3 commands 
-‘pip install pycryptodomex’ 
-‘pip install pyJWT’
-‘pip install pyminizip’
-‘pip install pyautogui’
+1. ‘pip install pycryptodomex’ 
+2. ‘pip install pyJWT’
+3. ‘pip install pyminizip’
+4. ‘pip install pyautogui’
 These four modules are required in order to run the program.
 To run the program, first double click on server.py and you will be prompted with the following, enter the information as required as shown in the screenshot below.
 
