@@ -62,4 +62,4 @@ Before the decryption process begins, the authenticators are prompted to enter t
 ‘server.py’ will have the following output as shown in the screenshot below.
 
 
-<img width="393" alt="image" src="">
+
